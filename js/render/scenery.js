@@ -8,21 +8,8 @@
   const { DEG, RAD } = FS.U;
   const T3 = (n, e, alt) => new THREE.Vector3(e, alt, -n);
 
-  const TOWNS = [
-    { n: 3600, e: 3800, r: 1700 },
-    { n: 18800, e: 8400, r: 900 },
-    { n: -13600, e: -12200, r: 1000 },
-    { n: -7000, e: 13500, r: 1400 },
-    { n: 7500, e: -11500, r: 1100 },
-    { n: -2500, e: -6000, r: 700 },
-  ];
-  const ROADS = [
-    [[0, 900], [2000, 2500], [3600, 3800], [9000, 6000], [15000, 7600], [18800, 8400], [21000, 11700]],
-    [[3600, 3800], [0, 9000], [-7000, 13500]],
-    [[0, -900], [-2500, -6000], [-8000, -9000], [-13600, -12200], [-15500, -15000]],
-    [[3600, 3800], [6000, -3000], [7500, -11500]],
-    [[-7000, 13500], [-14000, 6000], [-13600, -12200]],
-  ];
+  const TOWNS_ = () => FS.WORLD.towns || [];
+  const ROADS_ = () => FS.WORLD.roads || [];
 
   // ---------- shaders ----------
   const LIGHT_VS = `
@@ -36,7 +23,7 @@
       gl_Position = projectionMatrix * mv;
       float d = -mv.z;
       gl_PointSize = clamp(size * 2600.0 / d, 2.2, size * 7.0) * pixelRatio * (0.55 + 0.45*intensity);
-      float fd = fogDensity * 0.55;
+      float fd = fogDensity * 0.32; // point lights carry much further through haze (Allard's law)
       vFog = exp(-d*d*fd*fd);
       vColor = color * intensity;
       #include <logdepthbuf_vertex>
@@ -147,6 +134,8 @@
       await progress('Planting forests & towns');
       this.buildTrees();
       this.buildTowns();
+      if (FS.WORLD.cityDensity) this.buildCity();
+      this.buildLandmarks();
       this.buildRain();
       this.cloudGroup = new THREE.Group();
       S.add(this.cloudGroup);
@@ -289,9 +278,12 @@
       // ocean
       const wg = new THREE.PlaneGeometry(600000, 600000);
       wg.rotateX(-Math.PI / 2);
-      this.waterMat = new THREE.MeshPhongMaterial({ color: 0x1d4a66, specular: 0x557788, shininess: 60, transparent: true, opacity: 0.88 });
+      const W = FS.WORLD;
+      if (W.water) this.waterMat = new THREE.MeshPhongMaterial({ color: 0x1d4a66, specular: 0x557788, shininess: 60, transparent: true, opacity: 0.88 });
+      else this.waterMat = new THREE.MeshLambertMaterial({ color: 0xb8a582 });
+      this.waterIsGround = !W.water;
       this.water = new THREE.Mesh(wg, this.waterMat);
-      this.water.position.y = 0.05;
+      this.water.position.y = W.water ? 0.05 : W.edgeElev - 3;
       this.water.renderOrder = 1;
       this.scene.add(this.water);
     }
@@ -312,6 +304,7 @@
         const n = half - (y + 0.5) * px;
         for (let x = 0; x < R; x++) H[y * R + x] = T.height(n, -half + (x + 0.5) * px);
       }
+      const desert = FS.WORLD.palette === 'desert';
       const fieldCols = [
         [0.62, 0.58, 0.33], [0.4, 0.52, 0.23], [0.5, 0.42, 0.28], [0.52, 0.6, 0.3], [0.33, 0.45, 0.2], [0.68, 0.62, 0.42], [0.45, 0.5, 0.25],
       ];
@@ -331,15 +324,17 @@
           const slope = Math.hypot(hx, hy) / (2 * px);
           const v = nz.fbm(e / 700, n / 700, 3);
           let r, gg, b;
-          if (h < 0.3) {
+          if (h < 0.3 && !desert) {
             const t = FS.clamp(-h / 40, 0, 1);
             r = FS.lerp(0.62, 0.08, t);
             gg = FS.lerp(0.62, 0.22, t);
             b = FS.lerp(0.48, 0.3, t);
-          } else if (h < 4 + v * 3) {
+          } else if (h < 4 + v * 3 && !desert) {
             r = 0.78;
             gg = 0.72;
             b = 0.55;
+          } else if (desert) {
+            [r, gg, b] = this.desertColor(n, e, h, slope, v, hash, nz);
           } else {
             r = 0.36 + v * 0.06;
             gg = 0.47 + v * 0.07;
@@ -380,7 +375,7 @@
       g.putImageData(img, 0, 0);
       const toPx = (n, e) => [((e + half) / size) * R, ((half - n) / size) * R];
       // towns
-      for (const t of TOWNS) {
+      for (const t of TOWNS_()) {
         const [x, y] = toPx(t.n, t.e);
         const rr = (t.r / size) * R;
         const gr = g.createRadialGradient(x, y, 0, x, y, rr);
@@ -404,7 +399,7 @@
       g.strokeStyle = 'rgba(70,68,66,0.95)';
       g.lineWidth = 1.2;
       g.lineJoin = 'round';
-      for (const r of ROADS) {
+      for (const r of ROADS_()) {
         g.beginPath();
         r.forEach((p, i) => {
           const [x, y] = toPx(p[0], p[1]);
@@ -412,6 +407,7 @@
         });
         g.stroke();
       }
+      if (desert && FS.WORLD.cityDensity) this.paintCity(g, R, size, half, toPx);
       // airport grass (mown, lighter)
       for (const ap of FS.AIRPORTS)
         for (const rw of ap.runways) {
@@ -419,7 +415,7 @@
           g.save();
           g.translate(x, y);
           g.rotate(rw.hdg * DEG);
-          g.fillStyle = 'rgba(110,140,70,0.8)';
+          g.fillStyle = desert ? 'rgba(168,150,118,0.85)' : 'rgba(110,140,70,0.8)';
           const L = ((rw.length + 500) / size) * R,
             W = (420 / size) * R;
           g.fillRect(-W / 2, -L / 2, W, L);
@@ -503,12 +499,19 @@
       return t;
     }
 
-    flatRect(n, e, hdg, len, wid, elev, mat, yOff) {
+    flatRect(n, e, hdg, len, wid, ap, mat, yOff) {
       const g = new THREE.PlaneGeometry(wid, len, 1, Math.max(1, Math.round(len / 100)));
       g.rotateX(-Math.PI / 2);
       g.rotateY(-hdg * DEG);
+      const pa = g.attributes.position;
+      for (let i = 0; i < pa.count; i++) {
+        const vn = n - pa.getZ(i),
+          ve = e + pa.getX(i);
+        pa.setY(i, ap.elevAt(vn, ve) + yOff);
+      }
+      g.computeVertexNormals();
       const m = new THREE.Mesh(g, mat);
-      m.position.copy(T3(n, e, elev + yOff));
+      m.position.set(e, 0, -n);
       this.scene.add(m);
       return m;
     }
@@ -518,7 +521,9 @@
       const lightPos = [],
         lightCol = [],
         lightSize = [];
-      const addLight = (n, e, alt, c, s) => {
+      let curAp = null;
+      const addLight = (n, e, alt, c, s, abs) => {
+        if (!abs && curAp) alt += curAp.elevAt(n, e);
         lightPos.push(e, alt, -n);
         lightCol.push(c[0], c[1], c[2]);
         lightSize.push(s || 1);
@@ -534,10 +539,11 @@
 
       for (const ap of FS.AIRPORTS) {
         const el = ap.elev;
-        for (const p of ap.pavement) this.flatRect(p[0], p[1], p[2], p[3], p[4], el, taxiMat, 0.1);
+        curAp = ap;
+        for (const p of ap.pavement) this.flatRect(p[0], p[1], p[2], p[3], p[4], ap, taxiMat, 0.1);
         for (const rw of ap.runways) {
           const mat = new THREE.MeshPhongMaterial({ map: this.runwayTexture(rw), shininess: 8, specular: 0x151515, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-          this.flatRect(rw.n, rw.e, rw.hdg, rw.length, rw.width, el, mat, 0.15);
+          this.flatRect(rw.n, rw.e, rw.hdg, rw.length, rw.width, ap, mat, 0.15);
           const dn = rw.dirN,
             de = rw.dirE;
           const pn = -de,
@@ -548,7 +554,7 @@
               const off = rw.width / 2 + 1.5;
               const n = rw.thr[0].n + dn * s + pn * off * side,
                 e = rw.thr[0].e + de * s + pe * off * side;
-              addLight(n, e, el + 0.5, [1, 0.95, 0.8], 0.9);
+              addLight(n, e, 0.5, [1, 0.95, 0.8], 0.9);
             }
           }
           // threshold/end rows (green toward approach, red toward rollout)
@@ -558,7 +564,7 @@
             const idxStart = lightPos.length / 3;
             for (let k = -6; k <= 6; k++) {
               const off = (k / 6) * (rw.width / 2 + 2);
-              addLight(thr.n + dn * sgn * 2 + pn * off, thr.e + de * sgn * 2 + pe * off, el + 0.5, [0.2, 1, 0.3], 1.1);
+              addLight(thr.n + dn * sgn * 2 + pn * off, thr.e + de * sgn * 2 + pe * off, 0.5, [0.2, 1, 0.3], 1.1);
             }
             this.thrLights.push({ start: idxStart, count: 13, thr, hdg: thr.hdg });
           }
@@ -571,32 +577,34 @@
             const rn = -ae,
               re = an; // right of landing direction
             if (rw.als && rw.als[t]) {
-              for (let d = 30; d <= 720; d += 30) {
+              const alsL = (rw.alsLen && rw.alsLen[t]) || 720;
+              for (let d = 30; d <= alsL; d += 30) {
                 for (let k = -2; k <= 2; k++) {
                   const n = thr.n - an * d + rn * k * 1.2,
                     e = thr.e - ae * d + re * k * 1.2;
-                  addLight(n, e, el + 0.6 + d * 0.004, [1, 0.93, 0.8], 1.3);
+                  addLight(n, e, 0.6 + d * 0.004, [1, 0.93, 0.8], 1.3);
                 }
                 if (d === 300)
-                  for (let k = -7; k <= 7; k++) if (Math.abs(k) > 2) addLight(thr.n - an * d + rn * k * 1.5, thr.e - ae * d + re * k * 1.5, el + 1.8, [1, 0.93, 0.8], 1.3);
-                if (d >= 300) {
+                  for (let k = -7; k <= 7; k++) if (Math.abs(k) > 2) addLight(thr.n - an * d + rn * k * 1.5, thr.e - ae * d + re * k * 1.5, 1.8, [1, 0.93, 0.8], 1.3);
+                if (d >= 300 && alsL > 400) {
                   const i = lightPos.length / 3;
-                  addLight(thr.n - an * d, thr.e - ae * d, el + 2.2 + d * 0.004, [0, 0, 0], 3.0);
+                  addLight(thr.n - an * d, thr.e - ae * d, 2.2 + d * 0.004, [0, 0, 0], 3.0);
                   this.flashers.push({ i, d });
                 }
               }
               // approach light towers (visual)
             }
-            if (rw.lights) {
+            if (rw.lights && (!rw.papi || rw.papi[t])) {
               // PAPI left of runway, 300 m past threshold
               const pd = 300;
               const base = lightPos.length / 3;
-              const ang = [3.5, 3.1667, 2.8333, 2.5]; // inner -> outer
+              const pa = (rw.papi && rw.papi[t]) || 3.0;
+              const ang = [pa + 0.5, pa + 0.1667, pa - 0.1667, pa - 0.5]; // inner -> outer
               for (let k = 0; k < 4; k++) {
                 const off = -(rw.width / 2 + 15 + k * 9);
-                addLight(thr.n + an * pd + rn * off, thr.e + ae * pd + re * off, el + 1.0, [1, 1, 1], 1.6);
+                addLight(thr.n + an * pd + rn * off, thr.e + ae * pd + re * off, 1.0, [1, 1, 1], 1.6);
               }
-              this.papis.push({ base, thr, pd, ang, elev: el, an, ae });
+              this.papis.push({ base, thr, pd, ang, elev: thr.elev, an, ae });
             }
           }
         }
@@ -609,26 +617,27 @@
             pn = -de,
             pe = dn;
           for (let s = -p[3] / 2; s <= p[3] / 2; s += 50)
-            for (const side of [-1, 1]) addLight(p[0] + dn * s + pn * side * (p[4] / 2 + 1), p[1] + de * s + pe * side * (p[4] / 2 + 1), el + 0.4, [0.2, 0.35, 1], 0.7);
+            for (const side of [-1, 1]) addLight(p[0] + dn * s + pn * side * (p[4] / 2 + 1), p[1] + de * s + pe * side * (p[4] / 2 + 1), 0.4, [0.2, 0.35, 1], 0.7);
         }
         // buildings
         if (ap.tower) {
           const tw = new THREE.Mesh(new THREE.CylinderGeometry(3, 4, 22, 10), bldMat);
-          tw.position.copy(T3(ap.tower.n, ap.tower.e, el + 11));
+          tw.position.copy(T3(ap.tower.n, ap.tower.e, ap.elevAt(ap.tower.n, ap.tower.e) + 11));
           this.scene.add(tw);
           const cab = new THREE.Mesh(new THREE.CylinderGeometry(6, 5, 5, 8), glassMat);
-          cab.position.copy(T3(ap.tower.n, ap.tower.e, el + 24.5));
+          cab.position.copy(T3(ap.tower.n, ap.tower.e, ap.elevAt(ap.tower.n, ap.tower.e) + 24.5));
           this.scene.add(cab);
           const rf = new THREE.Mesh(new THREE.CylinderGeometry(6.5, 6.5, 1, 8), roofMat);
-          rf.position.copy(T3(ap.tower.n, ap.tower.e, el + 27.5));
+          rf.position.copy(T3(ap.tower.n, ap.tower.e, ap.elevAt(ap.tower.n, ap.tower.e) + 27.5));
           this.scene.add(rf);
-          ap.towerView = { n: ap.tower.n, e: ap.tower.e, alt: el + 25 };
-          addLight(ap.tower.n, ap.tower.e, el + 28.5, [1, 0.1, 0.05], 1.2);
+          ap.towerView = { n: ap.tower.n, e: ap.tower.e, alt: ap.elevAt(ap.tower.n, ap.tower.e) + 25 };
+          addLight(ap.tower.n, ap.tower.e, 28.5, [1, 0.1, 0.05], 1.2);
         } else ap.towerView = { n: ap.n + 300, e: ap.e + 300, alt: el + 15 };
+        this.buildTerminals(ap, bldMat, glassMat, addLight);
         for (const hg of ap.hangars) {
           const g = new THREE.BoxGeometry(34, 11, 28);
           const m = new THREE.Mesh(g, bldMat);
-          m.position.copy(T3(hg[0], hg[1], el + 5.5));
+          m.position.copy(T3(hg[0], hg[1], ap.elevAt(hg[0], hg[1]) + 5.5));
           m.rotation.y = -hg[2] * DEG;
           this.scene.add(m);
           const r = new THREE.Mesh(new THREE.CylinderGeometry(14.5, 14.5, 34.2, 12, 1, false, 0, Math.PI), roofMat);
@@ -637,7 +646,7 @@
           const rg = new THREE.Group();
           rg.add(r);
           r.scale.set(1, 1, 0.35);
-          rg.position.copy(T3(hg[0], hg[1], el + 11));
+          rg.position.copy(T3(hg[0], hg[1], ap.elevAt(hg[0], hg[1]) + 11));
           rg.rotation.y = -hg[2] * DEG;
           this.scene.add(rg);
         }
@@ -663,17 +672,17 @@
           pivot.position.y = 5.8;
           pivot.add(sock);
           g.add(pivot);
-          g.position.copy(T3(ap.windsock.n, ap.windsock.e, el));
+          g.position.copy(T3(ap.windsock.n, ap.windsock.e, ap.elevAt(ap.windsock.n, ap.windsock.e)));
           this.scene.add(g);
           this.windsocks.push({ pivot, sock });
-          addLight(ap.windsock.n, ap.windsock.e, el + 6.5, [1, 0.2, 0.1], 0.8);
+          addLight(ap.windsock.n, ap.windsock.e, 6.5, [1, 0.2, 0.1], 0.8);
         }
         if (ap.beacon) {
           const i = lightPos.length / 3;
-          addLight(ap.beacon.n, ap.beacon.e, el + 18, [0, 0, 0], 3);
+          addLight(ap.beacon.n, ap.beacon.e, 18, [0, 0, 0], 3);
           this.beacons.push(i);
           const tw = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.6, 18, 6), new THREE.MeshLambertMaterial({ color: 0xaa2222 }));
-          tw.position.copy(T3(ap.beacon.n, ap.beacon.e, el + 9));
+          tw.position.copy(T3(ap.beacon.n, ap.beacon.e, ap.elevAt(ap.beacon.n, ap.beacon.e) + 9));
           this.scene.add(tw);
         }
       }
@@ -687,7 +696,7 @@
         townSize.push(s);
       };
       const rnd = FS.rng(3);
-      for (const t of TOWNS)
+      for (const t of TOWNS_())
         for (let i = 0; i < 260; i++) {
           const a = rnd() * Math.PI * 2,
             r = Math.sqrt(rnd()) * t.r;
@@ -729,6 +738,275 @@
       this.scene.add(this.townLights);
     }
 
+    desertColor(n, e, h, slope, v, hash, nz) {
+      const W = FS.WORLD;
+      let r = 0.72 + v * 0.07,
+        g = 0.63 + v * 0.06,
+        b = 0.49 + v * 0.05;
+      // irrigated farmland south & west of the city
+      const fi = Math.floor(n / 380),
+        fj = Math.floor(e / 290);
+      const hv = hash(fi, fj);
+      if (h < 1250 && slope < 0.05 && hv < 0.35 && nz.noise(e / 6000, n / 6000) > -0.1) {
+        const k = hv / 0.35;
+        const fc = k < 0.4 ? [0.46, 0.52, 0.3] : k < 0.7 ? [0.62, 0.6, 0.42] : [0.55, 0.45, 0.33];
+        r = FS.lerp(r, fc[0], 0.8);
+        g = FS.lerp(g, fc[1], 0.8);
+        b = FS.lerp(b, fc[2], 0.8);
+      }
+      // city
+      const c = W.cityDensity(n, e);
+      if (c > 0) {
+        r = FS.lerp(r, 0.55 + v * 0.05, c * 0.9);
+        g = FS.lerp(g, 0.53 + v * 0.05, c * 0.9);
+        b = FS.lerp(b, 0.5 + v * 0.05, c * 0.9);
+      }
+      const f = this.terrain.forest(n, e);
+      r = FS.lerp(r, 0.2, f * 0.8);
+      g = FS.lerp(g, 0.32, f * 0.8);
+      b = FS.lerp(b, 0.16, f * 0.8);
+      // mountains: brown / grey rock, snow on high peaks
+      const rock = FS.clamp(FS.smoothstep(0.18, 0.6, slope) + FS.smoothstep(1700, 2400, h) * 0.8, 0, 1);
+      r = FS.lerp(r, 0.52 + v * 0.06, rock);
+      g = FS.lerp(g, 0.45 + v * 0.05, rock);
+      b = FS.lerp(b, 0.38 + v * 0.04, rock);
+      const snow = FS.smoothstep(3200 + v * 250, 3500 + v * 250, h) * FS.smoothstep(1.4, 0.6, slope);
+      r = FS.lerp(r, 0.96, snow);
+      g = FS.lerp(g, 0.97, snow);
+      b = FS.lerp(b, 0.99, snow);
+      return [r, g, b];
+    }
+
+    paintCity(g, R, size, half, toPx) {
+      const W = FS.WORLD;
+      const px = size / R;
+      // street grid (every ~300 m), highways already drawn
+      g.strokeStyle = 'rgba(70,68,64,0.55)';
+      g.lineWidth = 0.6;
+      for (let n = -half; n < half; n += 320) {
+        for (let e = -half; e < half; e += 800) {
+          if (W.cityDensity(n, e) < 0.3) continue;
+          const [x, y] = toPx(n, e);
+          g.beginPath();
+          g.moveTo(x, y);
+          g.lineTo(x + 800 / px, y);
+          g.stroke();
+        }
+      }
+      for (let e = -half; e < half; e += 320) {
+        for (let n = -half; n < half; n += 800) {
+          if (W.cityDensity(n, e) < 0.3) continue;
+          const [x, y] = toPx(n, e);
+          g.beginPath();
+          g.moveTo(x, y);
+          g.lineTo(x, y - 800 / px);
+          g.stroke();
+        }
+      }
+    }
+
+    buildCity() {
+      const W = FS.WORLD,
+        T = this.terrain;
+      const rnd = FS.rng(77);
+      const list = [];
+      const lights = [];
+      for (let k = 0; k < 260000 && list.length < 42000; k++) {
+        const n = (rnd() - 0.5) * 90000,
+          e = (rnd() - 0.5) * 110000 + 5000;
+        const d = W.cityDensity(n, e);
+        if (d <= 0 || rnd() > d) continue;
+        if (T.nearAirport(n, e, 250)) continue;
+        const h = T.height(n, e);
+        const north = FS.smoothstep(4000, 12000, n);
+        const tall = rnd() < 0.04 + 0.06 * north ? 25 + rnd() * (40 + 60 * north) : 0;
+        const hgt = 6 + rnd() * 12 + tall;
+        list.push([n, e, h, 12 + rnd() * 22, hgt, 12 + rnd() * 20, rnd()]);
+        if (rnd() < 0.35) lights.push([n, e, h + Math.min(hgt, 20) + 2]);
+      }
+      const box = new THREE.BoxGeometry(1, 1, 1);
+      box.translate(0, 0.5, 0);
+      const mesh = new THREE.InstancedMesh(box, new THREE.MeshLambertMaterial({ color: 0xffffff }), list.length);
+      const m4 = new THREE.Matrix4(),
+        q = new THREE.Quaternion(),
+        col = new THREE.Color();
+      const pal = [0xe4dccb, 0xd6c9b0, 0xcfc6b8, 0xbdb6aa, 0xe9e4da, 0xa9a39a, 0xc4b59a, 0x9ba3aa];
+      const ax = new THREE.Vector3(0, 1, 0);
+      list.forEach((b, i) => {
+        q.setFromAxisAngle(ax, (b[6] < 0.7 ? 0 : b[6]) * Math.PI);
+        m4.compose(new THREE.Vector3(b[1], b[2] - 1, -b[0]), q, new THREE.Vector3(b[3], b[4], b[5]));
+        mesh.setMatrixAt(i, m4);
+        col.setHex(pal[Math.floor(b[6] * pal.length) % pal.length]);
+        mesh.setColorAt(i, col);
+      });
+      this.scene.add(mesh);
+      // city lights at night
+      const pos = [],
+        cl = [],
+        sz = [];
+      for (const l of lights) {
+        pos.push(l[1], l[2], -l[0]);
+        const w = rnd();
+        cl.push(1, w < 0.6 ? 0.78 : 0.95, w < 0.6 ? 0.45 : 0.85);
+        sz.push(1.15);
+      }
+      const tg = this.townLights.geometry;
+      const old = tg.attributes.position.array.length / 3;
+      const P = new Float32Array((old + lights.length) * 3),
+        Cc = new Float32Array((old + lights.length) * 3),
+        Sz = new Float32Array(old + lights.length);
+      P.set(tg.attributes.position.array);
+      Cc.set(tg.attributes.color.array);
+      Sz.set(tg.attributes.size.array);
+      P.set(pos, old * 3);
+      Cc.set(cl, old * 3);
+      Sz.set(sz, old);
+      tg.setAttribute('position', new THREE.BufferAttribute(P, 3));
+      tg.setAttribute('color', new THREE.BufferAttribute(Cc, 3));
+      tg.setAttribute('size', new THREE.BufferAttribute(Sz, 1));
+    }
+
+    buildLandmarks() {
+      const T = this.terrain;
+      this.obstacleLights = [];
+      for (const L of FS.WORLD.landmarks || []) {
+        const h0 = T.height(L.n, L.e);
+        const grp = new THREE.Group();
+        grp.position.set(L.e, h0, -L.n);
+        if (L.type === 'milad') {
+          const conc = new THREE.MeshLambertMaterial({ color: 0xcfcac2 });
+          const shaft = new THREE.Mesh(new THREE.CylinderGeometry(7, 14, 300, 16), conc);
+          shaft.position.y = 150;
+          grp.add(shaft);
+          const pod = new THREE.Mesh(new THREE.CylinderGeometry(30, 22, 32, 24), new THREE.MeshPhongMaterial({ color: 0x5a7c9a, shininess: 80 }));
+          pod.position.y = 300;
+          grp.add(pod);
+          const top = new THREE.Mesh(new THREE.CylinderGeometry(22, 30, 8, 24), conc);
+          top.position.y = 320;
+          grp.add(top);
+          const ant = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 3, 110, 8), new THREE.MeshLambertMaterial({ color: 0xdedede }));
+          ant.position.y = 380;
+          grp.add(ant);
+          const base = new THREE.Mesh(new THREE.CylinderGeometry(40, 60, 20, 8), conc);
+          base.position.y = 10;
+          grp.add(base);
+          this.obstacleLights.push([L.n, L.e, h0 + 437], [L.n, L.e, h0 + 330]);
+        } else if (L.type === 'azadi') {
+          const white = new THREE.MeshLambertMaterial({ color: 0xf0ece2 });
+          for (const s of [-1, 1]) {
+            const leg = new THREE.Mesh(new THREE.BoxGeometry(12, 30, 42), white);
+            leg.position.set(s * 16, 15, 0);
+            leg.rotation.z = -s * 0.25;
+            grp.add(leg);
+          }
+          const topB = new THREE.Mesh(new THREE.BoxGeometry(40, 16, 44), white);
+          topB.position.y = 36;
+          grp.add(topB);
+          const cap = new THREE.Mesh(new THREE.BoxGeometry(26, 6, 30), white);
+          cap.position.y = 47;
+          grp.add(cap);
+          const plaza = new THREE.Mesh(new THREE.CylinderGeometry(140, 140, 0.5, 32), new THREE.MeshLambertMaterial({ color: 0x9ba27a }));
+          plaza.position.y = 0.3;
+          grp.add(plaza);
+        }
+        this.scene.add(grp);
+      }
+      if (this.obstacleLights.length) {
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.Float32BufferAttribute(this.obstacleLights.flatMap((p) => [p[1], p[2], -p[0]]), 3));
+        g.setAttribute('color', new THREE.Float32BufferAttribute(this.obstacleLights.flatMap(() => [1, 0.1, 0.05]), 3));
+        g.setAttribute('size', new THREE.Float32BufferAttribute(this.obstacleLights.map(() => 2.2), 1));
+        this.obsMat = this.lightMat.clone();
+        this.obsMat.uniforms = THREE.UniformsUtils.clone(this.lightMat.uniforms);
+        const pts = new THREE.Points(g, this.obsMat);
+        pts.frustumCulled = false;
+        this.scene.add(pts);
+      }
+    }
+
+    buildTerminals(ap, bldMat, glassMat, addLight) {
+      this.jetways = this.jetways || [];
+      this.props = this.props || [];
+      const glass = new THREE.MeshPhongMaterial({ color: 0x3b5a78, specular: 0x99bbdd, shininess: 90 });
+      for (const t of ap.terminals || []) {
+        const el = ap.elevAt(t.n, t.e);
+        const g = new THREE.BoxGeometry(t.wid, t.h, t.len);
+        const m = new THREE.Mesh(g, bldMat);
+        m.position.set(t.e, el + t.h / 2, -t.n);
+        m.rotation.y = -t.hdg * DEG;
+        this.scene.add(m);
+        const gf = new THREE.Mesh(new THREE.BoxGeometry(t.wid + 0.4, t.h * 0.45, t.len * 0.96), glass);
+        gf.position.set(t.e, el + t.h * 0.55, -t.n);
+        gf.rotation.y = -t.hdg * DEG;
+        this.scene.add(gf);
+        const roof = new THREE.Mesh(new THREE.BoxGeometry(t.wid + 6, 1.2, t.len + 6), new THREE.MeshLambertMaterial({ color: 0x8e959c }));
+        roof.position.set(t.e, el + t.h + 0.6, -t.n);
+        roof.rotation.y = -t.hdg * DEG;
+        this.scene.add(roof);
+      }
+      // jet bridges + ground service equipment at each gate
+      const bridgeMat = new THREE.MeshLambertMaterial({ color: 0xb9bcbf });
+      for (const gt of ap.gates || []) {
+        const el = ap.elevAt(gt.n, gt.e);
+        const h = gt.hdg * DEG;
+        const fwdN = Math.cos(h),
+          fwdE = Math.sin(h);
+        // rotunda near terminal, tunnel extends toward the aircraft's forward left door
+        const rn = gt.n + fwdN * 42 - fwdE * -12,
+          re = gt.e + fwdE * 42 + fwdN * -12;
+        const grp = new THREE.Group();
+        grp.position.set(re, el, -rn);
+        const rot = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.2, 5, 12), bridgeMat);
+        rot.position.y = 5.5;
+        grp.add(rot);
+        const tunnel = new THREE.Group();
+        tunnel.position.y = 5.2;
+        const tub = new THREE.Mesh(new THREE.BoxGeometry(3, 3, 1), bridgeMat);
+        tub.position.z = 0.5;
+        tunnel.add(tub);
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.6, 5, 0.6), new THREE.MeshLambertMaterial({ color: 0x555555 }));
+        tunnel.add(leg);
+        grp.add(tunnel);
+        this.scene.add(grp);
+        this.jetways.push({ gate: gt, grp, tunnel, tub, leg, ext: 0, target: 0 });
+        // GPU and baggage cart
+        const gpu = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.4, 3), new THREE.MeshLambertMaterial({ color: 0xe0b020 }));
+        gpu.position.set(gt.e - fwdE * 14 + fwdN * 6, el + 0.7, -(gt.n - fwdN * 14 - fwdE * 6));
+        this.scene.add(gpu);
+        const cart = new THREE.Mesh(new THREE.BoxGeometry(2, 1.6, 4.5), new THREE.MeshLambertMaterial({ color: 0x3b6fb0 }));
+        cart.position.set(gt.e - fwdE * 2 + fwdN * 9, el + 0.8, -(gt.n - fwdN * 2 - fwdE * 9));
+        this.scene.add(cart);
+        this.props.push({ gate: gt, meshes: [gpu, cart] });
+        addLight(gt.n + fwdN * 30, gt.e + fwdE * 30, 14, [1, 0.85, 0.6], 1.5);
+      }
+    }
+
+    // jet bridge animation: connect to the aircraft's forward-left door
+    updateJetways(dt, ac, connect) {
+      if (!this.jetways) return;
+      for (const J of this.jetways) {
+        const doorB = new FS.V3(13.2, -2.1, -0.4);
+        const d = ac.q.rotate(doorB);
+        const dn = ac.pos.x + d.x,
+          de = ac.pos.y + d.y;
+        const near = Math.hypot(dn - J.gate.n, de - J.gate.e) < 60 && ac.onGround && ac.gs < 0.5;
+        J.target = connect && near ? 1 : 0;
+        J.ext += FS.clamp(J.target - J.ext, -dt * 0.15, dt * 0.15);
+        const bx = J.grp.position.x,
+          bz = J.grp.position.z;
+        const tx = de,
+          tz = -dn;
+        const full = Math.hypot(tx - bx, tz - bz);
+        const L = FS.lerp(8, Math.max(full - 1.5, 8), J.ext);
+        const ang = Math.atan2(tx - bx, tz - bz);
+        J.tunnel.rotation.y = J.ext > 0.01 ? ang : J.tunnel.rotation.y || ang;
+        J.tub.scale.z = L;
+        J.tub.position.z = L / 2;
+        J.leg.position.z = L * 0.8;
+        J.connected = J.ext > 0.98;
+      }
+    }
+
     buildNavaidSites() {
       const white = new THREE.MeshLambertMaterial({ color: 0xf2f2f2 });
       for (const v of this.navaids) {
@@ -760,23 +1038,23 @@
       const T = this.terrain;
       const rnd = FS.rng(42);
       const mats = [];
-      const MAX = 60000;
+      const MAX = FS.WORLD.palette === 'desert' ? 20000 : 60000;
       let count = 0;
       const tries = 400000;
       for (let t = 0; t < tries && count < MAX; t++) {
         // bias toward the main airport area
-        const rr = rnd() < 0.6 ? 16000 : 34000;
+        const rr = FS.WORLD.palette === 'desert' ? 30000 : rnd() < 0.6 ? 16000 : 34000;
         const n = (rnd() - 0.5) * 2 * rr,
           e = (rnd() - 0.5) * 2 * rr;
         const f = T.forest(n, e);
-        if (f < 0.35 || rnd() > f) continue;
+        if (f < 0.3 || rnd() > f) continue;
         const h = T.height(n, e);
-        if (h < 4 || h > 1050) continue;
+        if ((FS.WORLD.water && h < 4) || h > (FS.WORLD.palette === 'desert' ? 2200 : 1050)) continue;
         const gr = T.gradient(n, e);
         if (Math.hypot(gr.dn, gr.de) > 0.7) continue;
         if (T.nearAirport(n, e, 150)) continue;
         let inTown = false;
-        for (const tw of TOWNS) if (Math.hypot(n - tw.n, e - tw.e) < tw.r) inTown = true;
+        for (const tw of TOWNS_()) if (Math.hypot(n - tw.n, e - tw.e) < tw.r) inTown = true;
         if (inTown) continue;
         const s = 0.8 + rnd() * 0.8;
         mats.push([e, h, -n, s, rnd()]);
@@ -812,7 +1090,7 @@
       const T = this.terrain;
       const rnd = FS.rng(11);
       const list = [];
-      for (const t of TOWNS) {
+      for (const t of TOWNS_()) {
         const nB = Math.round(t.r * 0.45);
         for (let i = 0; i < nB; i++) {
           const a = rnd() * Math.PI * 2,
@@ -1002,7 +1280,8 @@
       this.hemi.intensity = 0.035 + 0.62 * day;
       this.hemi.color.copy(zen).lerp(new THREE.Color(1, 1, 1), 0.5);
       this.amb.intensity = 0.015 + 0.13 * day + 0.2 * overcast * day;
-      this.waterMat.color.setRGB(0.11, 0.29, 0.4).multiplyScalar(0.3 + 0.7 * day);
+      if (this.waterIsGround) this.waterMat.color.setRGB(0.66, 0.58, 0.44).multiplyScalar(0.25 + 0.75 * day);
+      else this.waterMat.color.setRGB(0.11, 0.29, 0.4).multiplyScalar(0.3 + 0.7 * day);
 
       // ---- clouds: back-to-front sort of the billboards (periodically)
       const cs = this.cloudSort;
@@ -1053,6 +1332,10 @@
       this.townMat.uniforms.fogDensity.value = this.scene.fog.density;
       this.townMat.uniforms.intensity.value = this.night;
       this.townLights.visible = this.night > 0.05;
+      if (this.obsMat) {
+        this.obsMat.uniforms.fogDensity.value = this.scene.fog.density;
+        this.obsMat.uniforms.intensity.value = (0.6 + this.night) * ((this.time % 1.5) < 0.9 ? 1 : 0.25);
+      }
       const col = this.lightColors.array;
       const base = this.lightBase;
       // threshold rows: green seen from approach side, red from the other side
@@ -1161,5 +1444,4 @@
 
   FS.Scenery = Scenery;
   FS.T3 = T3;
-  FS.TOWNS = TOWNS;
 })(typeof window !== 'undefined' ? window : globalThis);

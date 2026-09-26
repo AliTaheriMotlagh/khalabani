@@ -200,6 +200,7 @@
       const c = this.ctx,
         t = c.currentTime;
       const { ac, cockpit, stallHorn, marker, paused, camDist, weather } = st;
+      if (this.jet) this.jet.out.gain.setTargetAtTime(0, t, 0.05), this.jet.apuG.gain.setTargetAtTime(0, t, 0.05), this.jet.apuNG.gain.setTargetAtTime(0, t, 0.05);
       const set = (param, v, tau) => param.setTargetAtTime(v, t, tau || 0.05);
       this.master.gain.setTargetAtTime(this.enabled && !paused ? this.volume : 0, t, 0.05);
       const rpm = ac.eng.rpm;

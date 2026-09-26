@@ -309,12 +309,22 @@
   };
 
   // ---------------- camera rig ----------------
-  const VIEWS = ['cockpit', 'cockpit-wide', 'chase', 'tower', 'flyby'];
+  const VIEWS = ['cockpit', 'cockpit-wide', 'chase', 'tower', 'flyby', 'wing', 'side', 'orbit', 'cabin', 'gearcam', 'tailcam'];
+  const VIEW_NAMES = {
+    cockpit: 'Cockpit + panel', 'cockpit-wide': 'Cockpit (outside view)', chase: 'Chase camera', tower: 'Tower view', flyby: 'Fly-by',
+    wing: 'Wing view', side: 'Side view', orbit: 'Top / orbit view', cabin: 'Cabin window', gearcam: 'Belly / gear camera', tailcam: 'Tail camera',
+  };
+  // per-type camera geometry in model space (+X right, +Y up, -Z forward)
+  const CAMS = {
+    c172: { eye: [-0.3, 0.82, -0.3], chase: 22, wing: [-4.5, 1.4, 1.5, 0, 0.5, -1], cabin: [-0.5, 0.75, 0.6, -5, 0.6, 0], gear: [0, -0.9, -1.5, 0, -1.4, -20], tail: [0, 2.3, 5.3, 0, 0.8, -10], orbitD: 30 },
+    a320: { eye: [-0.55, 1.15, -14.3], chase: 65, wing: [-15.5, 2.6, 8.5, -3, -0.8, -6], cabin: [-1.75, 0.35, 1.5, -9, -0.6, 3.5], gear: [0, -2.1, -7, 0, -4.5, -45], tail: [0, 8.4, 16.5, 0, 2, -25], orbitD: 120 },
+  };
 
   class CameraRig {
     constructor(camera) {
       this.camera = camera;
       this.view = 'cockpit';
+      this.type = 'c172';
       this.lookYaw = 0;
       this.lookPitch = -6 * DEG;
       this.orbitYaw = 0;
@@ -324,6 +334,10 @@
       this.flyby = null;
       this.shake = new THREE.Vector3();
       this.zoom = 1;
+    }
+    setType(t) {
+      this.type = t;
+      this.dist = CAMS[t].chase;
     }
     cycle(dir = 1) {
       const i = VIEWS.indexOf(this.view);
@@ -335,66 +349,84 @@
       this.chasePos = null;
       if (v.startsWith('cockpit')) {
         this.lookYaw = 0;
-        this.lookPitch = v === 'cockpit' ? -4 * DEG : -8 * DEG;
+        this.lookPitch = v === 'cockpit' ? -4 * DEG : this.type === 'a320' ? -6 * DEG : -8 * DEG;
       }
+      if (v === 'orbit') {
+        this.orbitPitch = 55 * DEG;
+        this.orbitYaw = 0.6;
+      } else if (v === 'side') {
+        this.orbitYaw = Math.PI / 2;
+        this.orbitPitch = 5 * DEG;
+      } else if (v === 'chase') {
+        this.orbitYaw = 0;
+        this.orbitPitch = 12 * DEG;
+        this.dist = CAMS[this.type].chase;
+      }
+      this.camLook = { yaw: 0, pitch: 0 };
       this.zoom = 1;
     }
     get isCockpit() {
       return this.view.startsWith('cockpit');
     }
+    get isAttached() {
+      return ['wing', 'cabin', 'gearcam', 'tailcam'].includes(this.view);
+    }
     drag(dx, dy) {
-      if (this.isCockpit) {
+      if (this.isCockpit || this.isAttached) {
         this.lookYaw = FS.clamp(this.lookYaw - dx * 0.004, -Math.PI * 0.95, Math.PI * 0.95);
         this.lookPitch = FS.clamp(this.lookPitch - dy * 0.004, -1.2, 1.2);
       } else {
         this.orbitYaw -= dx * 0.006;
-        this.orbitPitch = FS.clamp(this.orbitPitch + dy * 0.005, -1.2, 1.45);
+        this.orbitPitch = FS.clamp(this.orbitPitch + dy * 0.005, -1.2, 1.5);
       }
     }
     wheel(d) {
-      if (this.isCockpit || this.view === 'tower' || this.view === 'flyby') this.zoom = FS.clamp(this.zoom * (d > 0 ? 1.1 : 0.9), 0.3, 1.6);
-      else this.dist = FS.clamp(this.dist * (d > 0 ? 1.12 : 0.89), 8, 400);
-    }
-    snap(yawDeg, pitchDeg) {
-      this.lookYaw = yawDeg * DEG;
-      this.lookPitch = (pitchDeg || -5) * DEG;
+      if (this.isCockpit || this.isAttached || this.view === 'tower' || this.view === 'flyby') this.zoom = FS.clamp(this.zoom * (d > 0 ? 1.1 : 0.9), 0.3, 1.6);
+      else this.dist = FS.clamp(this.dist * (d > 0 ? 1.12 : 0.89), 8, 2000);
     }
     update(dt, ac, model, terrain, fovBase) {
       const cam = this.camera;
+      const C = CAMS[this.type];
       const q = new THREE.Quaternion(ac.q.y, -ac.q.z, -ac.q.x, ac.q.w);
       const pos = new THREE.Vector3(ac.pos.y, -ac.pos.z, -ac.pos.x);
-      // buffet / turbulence / ground roughness shake
-      const sh = ac.buffet * 0.02 + ac.rough * 0.015 + (ac.env && ac.env.weather ? Math.min(ac.env.weather.lastSigma || 0, 4) * 0.0015 : 0);
+      const sh = ac.buffet * 0.02 + (ac.rough || 0) * 0.015 + (ac.env && ac.env.weather ? Math.min(ac.env.weather.lastSigma || 0, 4) * 0.0015 : 0);
       this.shake.set((Math.random() - 0.5) * sh, (Math.random() - 0.5) * sh, (Math.random() - 0.5) * sh * 0.5);
       let fov = fovBase;
+      const look = () => new THREE.Quaternion().setFromEuler(new THREE.Euler(this.lookPitch, this.lookYaw, 0, 'YXZ'));
       if (this.isCockpit) {
-        const eye = new THREE.Vector3(-0.3, 0.82, -0.3).add(this.shake);
-        // head moves with g-load a bit
+        const eye = new THREE.Vector3(...C.eye).add(this.shake);
         eye.y -= FS.clamp((ac.gload - 1) * 0.015, -0.03, 0.05);
         cam.position.copy(eye.applyQuaternion(q).add(pos));
-        const look = new THREE.Quaternion().setFromEuler(new THREE.Euler(this.lookPitch, this.lookYaw, 0, 'YXZ'));
-        cam.quaternion.copy(q).multiply(look);
+        cam.quaternion.copy(q).multiply(look());
         fov = fovBase * this.zoom;
-      } else if (this.view === 'chase') {
-        const hdg = Math.atan2(ac.velNED ? ac.velNED.y : 0, ac.velNED ? ac.velNED.x : 1);
-        const useHdg = ac.gs > 3 ? -ac.heading * DEG : -ac.heading * DEG;
-        const yaw = useHdg + this.orbitYaw;
-        const off = new THREE.Vector3(Math.sin(yaw) * Math.cos(this.orbitPitch), Math.sin(this.orbitPitch), Math.cos(yaw) * Math.cos(this.orbitPitch)).multiplyScalar(this.dist);
+      } else if (this.isAttached) {
+        const key = { wing: 'wing', cabin: 'cabin', gearcam: 'gear', tailcam: 'tail' }[this.view];
+        const a = C[key];
+        const p = new THREE.Vector3(a[0], a[1], a[2]).add(this.shake);
+        const tgt = new THREE.Vector3(a[3], a[4], a[5]);
+        const m = new THREE.Matrix4().lookAt(p, tgt, new THREE.Vector3(0, 1, 0));
+        const lq = new THREE.Quaternion().setFromRotationMatrix(m);
+        cam.position.copy(p.applyQuaternion(q).add(pos));
+        cam.quaternion.copy(q).multiply(lq).multiply(look());
+        fov = (this.view === 'gearcam' ? 70 : 60) * this.zoom;
+      } else if (this.view === 'chase' || this.view === 'side' || this.view === 'orbit') {
+        const yaw = -ac.heading * DEG + this.orbitYaw;
+        const d = this.view === 'orbit' ? Math.max(this.dist, C.orbitD) : this.dist;
+        const off = new THREE.Vector3(Math.sin(yaw) * Math.cos(this.orbitPitch), Math.sin(this.orbitPitch), Math.cos(yaw) * Math.cos(this.orbitPitch)).multiplyScalar(d);
         const target = pos.clone().add(off);
         if (!this.chasePos) this.chasePos = target.clone();
-        this.chasePos.lerp(target, FS.lagK(dt, 0.25));
+        this.chasePos.lerp(target, FS.lagK(dt, this.view === 'chase' ? 0.25 : 0.12));
         const gh = terrain.groundHeight(-this.chasePos.z, this.chasePos.x);
         if (this.chasePos.y < gh + 1.5) this.chasePos.y = gh + 1.5;
         cam.position.copy(this.chasePos);
         cam.up.set(0, 1, 0);
         cam.lookAt(pos.clone().add(new THREE.Vector3(0, 1, 0)));
-        void hdg;
       } else if (this.view === 'tower') {
         let best = null,
           bd = 1e12;
         for (const ap of FS.AIRPORTS) {
           const d = Math.hypot(ap.n - ac.pos.x, ap.e - ac.pos.y);
-          if (d < bd) {
+          if (d < bd && ap.towerView) {
             bd = d;
             best = ap;
           }
@@ -404,15 +436,16 @@
         cam.up.set(0, 1, 0);
         cam.lookAt(pos);
         const dist = cam.position.distanceTo(pos);
-        fov = FS.clamp(Math.atan2(35, dist) * 2 * FS.U.RAD, 1.5, 60) * this.zoom;
+        fov = FS.clamp(Math.atan2(this.type === 'a320' ? 80 : 35, dist) * 2 * FS.U.RAD, 1.5, 60) * this.zoom;
       } else if (this.view === 'flyby') {
-        if (!this.flyby || cam.position.distanceTo(pos) > 600) {
+        if (!this.flyby || cam.position.distanceTo(pos) > (this.type === 'a320' ? 1500 : 600)) {
           const v = ac.velNED || { x: 0, y: 0, z: 0 };
           const fwd = new THREE.Vector3(v.y, -v.z, -v.x);
           if (fwd.length() < 5) fwd.set(0, 0, -1).applyQuaternion(q);
           fwd.normalize();
           const side = new THREE.Vector3(-fwd.z, 0, fwd.x).normalize();
-          const p = pos.clone().addScaledVector(fwd, 300).addScaledVector(side, 25);
+          const k = this.type === 'a320' ? 3 : 1;
+          const p = pos.clone().addScaledVector(fwd, 300 * k).addScaledVector(side, 25 * k);
           const gh = terrain.groundHeight(-p.z, p.x);
           p.y = Math.max(p.y - 5, gh + 2);
           this.flyby = p;
@@ -432,4 +465,5 @@
   FS.AircraftModel = AircraftModel;
   FS.CameraRig = CameraRig;
   FS.VIEWS = VIEWS;
+  FS.VIEW_NAMES = VIEW_NAMES;
 })(typeof window !== 'undefined' ? window : globalThis);

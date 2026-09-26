@@ -80,3 +80,9 @@ kbd { display: inline-block; min-width: 20px; padding: 1px 6px; margin: 0 1px; b
 .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px 24px; }
 .charts h4 { margin-top: 0; color: #7ab8e0; }
 .charts p { font-size: 13px; color: #bcd; line-height: 1.5; margin: 6px 0; }
+
+#panel320 { position: fixed; left: 0; bottom: 0; display: none; z-index: 5; box-shadow: 0 -6px 18px rgba(0,0,0,0.6); }
+.popup { position: fixed; z-index: 12; border: 2px solid #222; border-radius: 10px; box-shadow: 0 12px 40px rgba(0,0,0,0.7); }
+#mcdu { right: 16px; top: 16px; width: 440px; height: 660px; max-height: 92vh; }
+#ovhd { left: 50%; top: 20px; transform: translateX(-50%); }
+.sc-group { grid-column: 1 / -1; margin: 10px 0 2px; font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase; color: #9fd0ff; border-bottom: 1px solid #2a4258; padding-bottom: 4px; }

@@ -24,6 +24,8 @@
     lifr: { name: 'Low IFR: fog', qnh: 1021, tempC: 7, dewC: 7, windDir: 280, windKt: 3, gustKt: 0, aloftDir: 300, aloftKt: 12, turb: 0.0, vis: 600, precip: 0, clouds: [{ baseFt: 250, topFt: 1600, cover: 8, type: 'st' }] },
     storm: { name: 'Gusty crosswind & showers', qnh: 998, tempC: 17, dewC: 13, windDir: 200, windKt: 20, gustKt: 32, aloftDir: 230, aloftKt: 45, turb: 0.75, vis: 6000, precip: 0.5, clouds: [{ baseFt: 1800, topFt: 9000, cover: 6, type: 'cb' }] },
     icing: { name: 'Icing conditions', qnh: 1006, tempC: 3, dewC: 2, windDir: 300, windKt: 12, gustKt: 0, aloftDir: 300, aloftKt: 30, turb: 0.2, vis: 5000, precip: 0.2, clouds: [{ baseFt: 1200, topFt: 7500, cover: 8, type: 'st' }] },
+    tehran: { name: 'Tehran summer afternoon (hot & high)', qnh: 1009, tempC: 35, dewC: -3, windDir: 290, windKt: 11, gustKt: 17, aloftDir: 270, aloftKt: 35, turb: 0.35, vis: 20000, precip: 0, clouds: [{ baseFt: 9500, topFt: 12000, cover: 2, type: 'cu' }] },
+    smog: { name: 'Tehran winter smog / inversion', qnh: 1027, tempC: 3, dewC: -1, windDir: 90, windKt: 3, gustKt: 0, aloftDir: 280, aloftKt: 25, turb: 0.05, vis: 3500, precip: 0, clouds: [{ baseFt: 6000, topFt: 7500, cover: 5, type: 'st' }] },
   };
 
   class Weather {
@@ -72,18 +74,23 @@
 
     // ---- Atmosphere (hydrostatic with actual temperature) ----
     atmosphere(h) {
-      const T0 = 273.15 + this.tempC + LAPSE * this.refElev; // sea-level temp that gives tempC at airport
+      // QNH is the station pressure reduced to sea level with the ISA lapse; the real temperature then applies
+      // from the station upward/downward, so the altimeter reads field elevation at the field and shows
+      // genuine temperature errors elsewhere.
+      const ref = this.refElev || 0;
+      const pSt = this.qnh * 100 * Math.pow(1 - (LAPSE * ref) / 288.15, EXP);
+      const Tst = 273.15 + this.tempC;
       h = Math.max(-500, h);
+      const hTrop = 11000;
       let T, p;
-      const p0 = this.qnh * 100;
-      if (h < 11000) {
-        T = T0 - LAPSE * h;
-        p = p0 * Math.pow(T / T0, EXP);
+      if (h < hTrop) {
+        T = Tst - LAPSE * (h - ref);
+        p = pSt * Math.pow(T / Tst, EXP);
       } else {
-        const T11 = T0 - LAPSE * 11000;
-        const p11 = p0 * Math.pow(T11 / T0, EXP);
+        const T11 = Tst - LAPSE * (hTrop - ref);
+        const p11 = pSt * Math.pow(T11 / Tst, EXP);
         T = T11;
-        p = p11 * Math.exp((-G0 * (h - 11000)) / (R_AIR * T11));
+        p = p11 * Math.exp((-G0 * (h - hTrop)) / (R_AIR * T11));
       }
       const rho = p / (R_AIR * T);
       return { T, p, rho, tempC: T - 273.15, sigma: rho / 1.225, a: Math.sqrt(1.4 * R_AIR * T) };

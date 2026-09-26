@@ -120,7 +120,7 @@
       // Heading indicator (directional gyro)
       this.dgDrift += this.dgRate * dt + (1 - g) * (FS.gauss() * 0.5 + 0.6) * dt * 8 + Math.abs(ac.omega.x) * dt * 0.02 * FS.gauss();
       if (!healthy) this.dgDrift -= (ac.omega.z * RAD) * dt * (1 - g) * 0.8; // card lags turns when spun down
-      this.dg = FS.wrap360(ac.heading + this.dgDrift);
+      this.dg = FS.wrap360(ac.heading - (FS.magVar || 0) + this.dgDrift);
 
       // ---------- magnetic compass ----------
       const sf = ac.specForce;
@@ -145,7 +145,8 @@
         gy *= s;
         gz = Math.cos(18 * DEG);
       }
-      const B = ac.q.invRotate(new FS.V3(Math.cos(DIP), 0, Math.sin(DIP)));
+      const mv = (FS.magVar || 0) * DEG;
+      const B = ac.q.invRotate(new FS.V3(Math.cos(DIP) * Math.cos(mv), Math.cos(DIP) * Math.sin(mv), Math.sin(DIP)));
       const dotBg = B.x * gx + B.y * gy + B.z * gz;
       const bx = B.x - dotBg * gx,
         by = B.y - dotBg * gy,

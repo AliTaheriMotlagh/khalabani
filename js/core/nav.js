@@ -8,48 +8,12 @@
   const { DEG, RAD, NM, FT } = FS.U;
 
   function buildNavaids(terrain) {
-    const A = FS.AIRPORTS;
-    const list = [];
     const at = (n, e, agl) => ({ n, e, alt: terrain.groundHeight(n, e) + (agl || 0) });
-
-    function ils(ap, rw, endIdx, freq, ident, opts) {
-      const thr = rw.thr[endIdx];
-      const hdg = thr.hdg * DEG;
-      const dn = Math.cos(hdg),
-        de = Math.sin(hdg);
-      const loc = Object.assign(at(thr.n + dn * (rw.length + 300), thr.e + de * (rw.length + 300), 2), {
-        type: 'LOC', freq, ident, course: thr.hdg, fullScale: 2.5, range: 18 * NM,
-        name: `ILS ${thr.id} ${ap.icao}`, apt: ap.icao, rwy: thr.id, thr, elev: ap.elev,
-      });
-      list.push(loc);
-      if (opts.gs) {
-        // GS antenna 300 m beyond threshold, 120 m to the side
-        const gsN = thr.n + dn * 300 - de * 120,
-          gsE = thr.e + de * 300 + dn * 120;
-        loc.gs = { n: gsN, e: gsE, alt: ap.elev, angle: 3.0, fullScale: 0.7, range: 10 * NM, alongN: thr.n + dn * 300, alongE: thr.e + de * 300 };
-      }
-      loc.dme = { n: loc.gs ? loc.gs.n : loc.n, e: loc.gs ? loc.gs.e : loc.e, alt: ap.elev + 5 };
-      if (opts.om) {
-        const d = opts.om;
-        list.push(Object.assign(at(thr.n - dn * d, thr.e - de * d), { type: 'MKR', kind: 'OM', course: thr.hdg, ident: 'OM' }));
-        if (opts.ndb)
-          list.push(Object.assign(at(thr.n - dn * d, thr.e - de * d, 10), { type: 'NDB', freq: opts.ndb[0], ident: opts.ndb[1], name: `LOM ${opts.ndb[1]}`, range: 35 * NM }));
-      }
-      if (opts.mm) list.push(Object.assign(at(thr.n - dn * opts.mm, thr.e - de * opts.mm), { type: 'MKR', kind: 'MM', course: thr.hdg, ident: 'MM' }));
-      return loc;
+    const list = FS.WORLD.navaids(terrain, FS.makeILS, at);
+    for (const v of list) {
+      if (v.type === 'VOR' && v.dmeCap) v.dme = { n: v.n, e: v.e, alt: v.alt };
+      if (v.type === 'VOR') v.var = FS.magVar || 0;
     }
-
-    const avx = A[0],
-      hld = A[1],
-      lkv = A[2];
-    list.push(Object.assign(at(1400, -600, 5), { type: 'VOR', freq: 113.9, ident: 'AVX', name: 'Avalon VOR/DME', dmeCap: true, range: 130 * NM }));
-    list.push(Object.assign(at(22500, 13200, 5), { type: 'VOR', freq: 116.4, ident: 'HLD', name: 'Highland VOR/DME', dmeCap: true, range: 130 * NM }));
-    list.push(Object.assign(at(-14200, -18200, 5), { type: 'VOR', freq: 115.2, ident: 'LKV', name: 'Lakeview VOR/DME', dmeCap: true, range: 60 * NM }));
-    ils(avx, avx.runways[0], 1, 110.3, 'IAVX', { gs: true, om: 4.5 * NM, mm: 1050, ndb: [356, 'AV'] });
-    ils(avx, avx.runways[0], 0, 109.5, 'IAVE', { gs: true });
-    ils(hld, hld.runways[0], 0, 108.7, 'IHLD', { gs: true, om: 4.0 * NM, ndb: [329, 'HL'] });
-    list.push(Object.assign(at(lkv.n + 300, lkv.e + 250, 10), { type: 'NDB', freq: 382, ident: 'LK', name: 'Lakeview NDB', range: 40 * NM }));
-    for (const v of list) if (v.type === 'VOR' && v.dmeCap) v.dme = { n: v.n, e: v.e, alt: v.alt };
     return list;
   }
 
@@ -87,7 +51,8 @@
       o.ident = st.ident;
       o.type = st.type;
       o.dist = dist;
-      const radial = FS.wrap360(Math.atan2(dE, dN) * RAD);
+      const radialTrue = FS.wrap360(Math.atan2(dE, dN) * RAD);
+      const radial = st.type === 'VOR' ? FS.wrap360(radialTrue - (st.var || 0)) : radialTrue;
       o.radial = radial;
       if (st.type === 'VOR') {
         // cone of confusion overhead
@@ -106,9 +71,10 @@
         if (Math.abs(Math.abs(d) - 90) < 2) o.toFrom = 0; // abeam: flag ambiguous
       } else {
         // Localizer
-        const dev = FS.wrap180(radial - (st.course + 180));
+        const crsT = st.courseTrue != null ? st.courseTrue : st.course;
+        const dev = FS.wrap180(radial - (crsT + 180));
         const front = Math.abs(dev) < 90;
-        const devA = front ? dev : FS.wrap180(radial - st.course);
+        const devA = front ? dev : FS.wrap180(radial - crsT);
         const maxA = dist < 10 * NM ? 35 : 10;
         if (Math.abs(devA) > maxA) return o;
         o.valid = true;
@@ -122,6 +88,7 @@
           const ang = Math.atan2(alt - g.alt, hdist) * RAD;
           if (hdist < g.range && Math.abs(devA) < 8 && ang > 0.3) {
             o.gsValid = true;
+            o.gsDist = hdist;
             // simple lobe model: a false glide path appears at ~9 deg (reversed sensing between)
             let dv = ang - g.angle;
             if (ang > 6) dv = -Math.sin(((ang - 6) / 3) * Math.PI) * 1.2;

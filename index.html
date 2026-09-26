@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Avalon Flight Simulator</title>
+    <title>Avalon Flight Simulator — A320 Mehrabad</title>
     <link rel="stylesheet" href="css/style.css" />
   </head>
   <body>
@@ -14,6 +14,9 @@
     <div id="paused" class="hidden">PAUSED — press P</div>
     <canvas id="map" class="hidden"></canvas>
     <canvas id="panel"></canvas>
+    <canvas id="panel320"></canvas>
+    <canvas id="mcdu" class="hidden popup"></canvas>
+    <canvas id="ovhd" class="hidden popup"></canvas>
     <div id="report" class="hidden"></div>
     <div id="crash" class="hidden"></div>
 
@@ -26,7 +29,7 @@
       <div class="menu-box">
         <header>
           <div class="logo">AVALON<span>FLIGHT SIMULATOR</span></div>
-          <div class="sub">Cessna 172S · Avalon Island · 6-DOF flight model · IFR avionics</div>
+          <div class="sub">Airbus A320 (Iran Air) at Tehran Mehrabad · Cessna 172S at Avalon Island · 6-DOF flight models · FBW · ECAM · MCDU · IFR avionics</div>
         </header>
         <nav>
           <div class="tab on" data-tab="flight">Flight</div>
@@ -37,7 +40,7 @@
         </nav>
         <section id="tab-flight" class="tabpage">
           <div id="scenarios"></div>
-          <div class="atis-box"><b>KAVX ATIS</b> <span id="atis"></span></div>
+          <div class="atis-box"><b id="atis-icao">ATIS</b> <span id="atis"></span></div>
         </section>
         <section id="tab-weather" class="tabpage hidden">
           <div class="grid">
@@ -104,8 +107,17 @@
               <p><kbd>N</kbd> swap NAV1 · <kbd>,</kbd><kbd>.</kbd> NAV1 OBS · <kbd>Shift</kbd>+<kbd>,</kbd><kbd>.</kbd> heading bug</p>
               <p>Mouse wheel / click on any knob, radio, switch or lever in the panel</p>
             </div>
+            <div><h4>Airbus A320</h4>
+              <p>Sidestick: same keys / mouse (Y) / joystick — FBW holds attitude when released</p>
+              <p><kbd>=</kbd><kbd>-</kbd> thrust levers (stop at detents) · <kbd>Shift</kbd>+<kbd>=</kbd><kbd>-</kbd> jump detent IDLE/CL/FLX-MCT/TOGA · below IDLE on ground = reverse</p>
+              <p><kbd>F</kbd>/<kbd>R</kbd> flaps lever · <kbd>G</kbd> gear · <kbd>/</kbd> speed brake · <kbd>Shift</kbd>+<kbd>/</kbd> arm spoilers</p>
+              <p><kbd>Z</kbd> AP1 · <kbd>Shift</kbd>+<kbd>Z</kbd> A/THR · <kbd>X</kbd> AP disconnect · <kbd>Shift</kbd>+<kbd>X</kbd> A/THR disconnect</p>
+              <p><kbd>Shift</kbd>+<kbd>A</kbd> APPR · <kbd>Shift</kbd>+<kbd>V</kbd> LOC · <kbd>F4</kbd> LS · <kbd>Shift</kbd>+<kbd>T</kbd> gravity gear extension</p>
+              <p><kbd>F2</kbd> MCDU (click it, then type on the keyboard) · <kbd>F3</kbd> overhead panel &amp; ground services</p>
+              <p><kbd>[</kbd><kbd>]</kbd> manual pitch trim (direct law / ground)</p>
+            </div>
             <div><h4>Views &amp; sim</h4>
-              <p><kbd>C</kbd> cycle views · <kbd>1</kbd>–<kbd>5</kbd> cockpit / outside / chase / tower / fly-by</p>
+              <p><kbd>C</kbd> cycle views · <kbd>1</kbd>–<kbd>0</kbd>: cockpit+panel, cockpit, chase, tower, fly-by, wing, side, orbit, cabin window, belly cam</p>
               <p><kbd>Tab</kbd> hide/show panel · drag mouse to look · wheel to zoom · <kbd>Space</kbd> recenter</p>
               <p><kbd>M</kbd> moving map · <kbd>I</kbd> flight data · <kbd>U</kbd> sound</p>
               <p><kbd>P</kbd> pause · <kbd>Esc</kbd> menu · <kbd>Shift</kbd>+<kbd>R</kbd> restart scenario</p>
@@ -115,6 +127,17 @@
         </section>
         <section id="tab-charts" class="tabpage hidden">
           <div class="charts">
+            <div><h4>OIII Tehran Mehrabad · 3,965 ft (AIP)</h4>
+              <p>RWY 11L/29R 3,996 × 45 m concrete · 29R PALS CAT I 830 m, PAPI 3.3°<br />RWY 11R/29L 4,041 × 60 m asphalt · 29L PALS 870 m, PAPI 3.3° · 11R SALS 300 m, PAPI 3.4°<br />Runway slope 1.26 % (29 thresholds ~165 ft lower)</p>
+              <p><b>ILS 29L</b> ITHL 109.90 · CRS 285° · GP 3.3° · RDH 59 ft · DME<br /><b>ILS 29R</b> ITRN 110.70 · CRS 285° · DME</p>
+              <p><b>TRN DVOR/DME</b> 115.30 · <b>RUS VOR/DME</b> 116.95 · <b>VR NDB</b> 373 · <b>KAZ NDB</b> 358</p>
+              <p>ATIS 128.000 · DEL 121.850 · GND 121.700 / 121.900 · TWR 118.100 / 124.450 · APP 119.700 / 125.100<br />TA 9,000 ft · TL FL110 · MAG VAR 5°E</p>
+            </div>
+            <div><h4>OIIE Imam Khomeini · 3,305 ft (approx.)</h4>
+              <p>RWY 11L/29R 4,201 m · RWY 11R/29L 4,095 m<br />ILS 29R IIKA 110.30 · ILS 11L IIKE 108.50 (sim frequencies)</p>
+              <h4>A320 speeds (64 t)</h4>
+              <p>VR ≈ 140 · V2 ≈ 145 · VLS FULL ≈ 128 · VAPP ≈ 133 · Green dot ≈ 213<br />VFE: 1 230 · 1+F 215 · 2 200 · 3 185 · FULL 177 · VLE 280 · VMO 350 / MMO .82</p>
+            </div>
             <div><h4>KAVX Avalon Regional · 197 ft</h4>
               <p>RWY 09/27 · 2000 × 45 m asphalt · ALS + PAPI rwy 27</p>
               <p><b>ILS 27</b> IAVX 110.30 · CRS 270° · GS 3.0° · DME<br />OM/LOM "AV" 356 kHz at 4.5 nm · MM 0.6 nm<br />DA 200 ft AGL · Missed: climb rwy heading to 3000, direct AVX</p>
@@ -155,6 +178,15 @@
     <script src="js/render/panel.js"></script>
     <script src="js/sim/audio.js"></script>
     <script src="js/sim/input.js"></script>
+    <script src="js/a320/fdm.js"></script>
+    <script src="js/a320/systems.js"></script>
+    <script src="js/a320/fmgs.js"></script>
+    <script src="js/a320/tcas.js"></script>
+    <script src="js/a320/displays.js"></script>
+    <script src="js/a320/mcdu.js"></script>
+    <script src="js/a320/cockpit.js"></script>
+    <script src="js/a320/model.js"></script>
+    <script src="js/a320/audio320.js"></script>
     <script src="js/main.js"></script>
   </body>
 </html>
