@@ -1,0 +1,171 @@
+<canvas id="view"></canvas>
+<div id="frost"></div>
+<div id="hud-info"></div>
+<div id="banner"></div>
+<div id="paused" class="hidden">PAUSED — press P</div>
+<canvas id="map" class="hidden"></canvas>
+<canvas id="panel"></canvas>
+<canvas id="panel320"></canvas>
+<canvas id="mcdu" class="hidden popup"></canvas>
+<canvas id="ovhd" class="hidden popup"></canvas>
+<div id="report" class="hidden"></div>
+<div id="crash" class="hidden"></div>
+<div id="touch" class="hidden"></div>
+<div id="rotate">
+  <div class="rotate-icon">⟳</div>
+  <p>Turn your phone sideways — the simulator is made for landscape.</p>
+  <button (click)="onContinuePortrait()">Continue in portrait</button>
+</div>
+
+<div id="loading">
+  <div class="logo">AVALON<span>FLIGHT SIMULATOR</span></div>
+  <div id="loading-msg">Loading…</div>
+</div>
+
+<div id="menu" class="hidden">
+  <div class="menu-box">
+    <header>
+      <div class="logo">AVALON<span>FLIGHT SIMULATOR</span></div>
+      <div class="sub">Airbus A320 (Iran Air) at Tehran Mehrabad · Cessna 172S at Avalon Island · 6-DOF flight models · FBW · ECAM · MCDU · IFR avionics</div>
+    </header>
+    <nav>
+      <div class="tab on" data-tab="flight">Flight</div>
+      <div class="tab" data-tab="weather">Weather</div>
+      <div class="tab" data-tab="systems">Time &amp; Systems</div>
+      <div class="tab" data-tab="controls">Controls</div>
+      <div class="tab" data-tab="charts">Charts</div>
+    </nav>
+    <section id="tab-flight" class="tabpage">
+      <div id="scenarios"></div>
+      <div class="atis-box"><b id="atis-icao">ATIS</b> <span id="atis"></span></div>
+    </section>
+    <section id="tab-weather" class="tabpage hidden">
+      <div class="grid">
+        <label>Preset <select id="wx-preset"></select></label>
+        <label>Surface wind from (°) <input id="wx-wdir" type="number" min="0" max="360" step="10" /></label>
+        <label>Wind speed (kt) <input id="wx-wspd" type="number" min="0" max="50" /></label>
+        <label>Gusts to (kt) <input id="wx-gust" type="number" min="0" max="60" /></label>
+        <label>Winds aloft from (°) <input id="wx-adir" type="number" min="0" max="360" step="10" /></label>
+        <label>Winds aloft (kt) <input id="wx-aspd" type="number" min="0" max="80" /></label>
+        <label>Turbulence <input id="wx-turb" type="range" min="0" max="1" step="0.05" /></label>
+        <label>Visibility (m) <input id="wx-vis" type="number" min="100" max="80000" step="100" /></label>
+        <label>Temperature at KAVX (°C) <input id="wx-temp" type="number" min="-30" max="45" /></label>
+        <label>Dew point (°C) <input id="wx-dew" type="number" min="-40" max="35" /></label>
+        <label>QNH (hPa) <input id="wx-qnh" type="number" min="950" max="1050" step="1" /></label>
+        <label>Precipitation <input id="wx-precip" type="range" min="0" max="1" step="0.05" /></label>
+      </div>
+      <h4>Cloud layers <small>(feet above KAVX)</small></h4>
+      <div class="grid clouds">
+        <label>Layer 1 cover <select id="wx-c0-cov" class="wx"><option value="0">None</option><option value="2">FEW</option><option value="4">SCT</option><option value="6">BKN</option><option value="8">OVC</option></select></label>
+        <label>Base <input id="wx-c0-base" type="number" step="100" /></label>
+        <label>Top <input id="wx-c0-top" type="number" step="100" /></label>
+        <label>Type <select id="wx-c0-type" class="wx"><option value="cu">Cumulus</option><option value="st">Stratus</option><option value="cb">Cumulonimbus</option></select></label>
+        <label>Layer 2 cover <select id="wx-c1-cov" class="wx"><option value="0">None</option><option value="2">FEW</option><option value="4">SCT</option><option value="6">BKN</option><option value="8">OVC</option></select></label>
+        <label>Base <input id="wx-c1-base" type="number" step="100" /></label>
+        <label>Top <input id="wx-c1-top" type="number" step="100" /></label>
+        <label>Type <select id="wx-c1-type" class="wx"><option value="cu">Cumulus</option><option value="st">Stratus</option><option value="cb">Cumulonimbus</option></select></label>
+      </div>
+      <p class="note" id="wx-info"></p>
+      <p class="note">Wind blowing over hills creates lift on the windward side and sink/rotors on the lee side. Cumulus clouds have updrafts beneath them. Flying in visible moisture below +1 °C causes airframe and pitot icing.</p>
+    </section>
+    <section id="tab-systems" class="tabpage hidden">
+      <div class="grid">
+        <label>Time of day <input id="time" type="range" min="0" max="23.9" step="0.1" /> <span id="time-val"></span></label>
+        <label>Fuel on board (gal) <input id="fuel" type="number" min="4" max="53" value="40" /></label>
+        <label>Pilot + passengers + bags (lb) <input id="payload" type="number" min="150" max="800" value="400" /></label>
+        <label><input id="baro-auto" type="checkbox" checked /> Altimeter preset to ATIS QNH (otherwise 29.92)</label>
+        <label><input id="auto-rudder" type="checkbox" checked /> Auto-coordination (rudder assist in flight)</label>
+        <label><input id="mouse-yoke" type="checkbox" /> Mouse yoke</label>
+        <label><input id="touch-ui" type="checkbox" /> On-screen touch controls (automatic on phones &amp; tablets)</label>
+        <label>Control sensitivity <input id="sens" type="range" min="0.4" max="1.5" step="0.05" value="1" /></label>
+        <label>Sound volume <input id="volume" type="range" min="0" max="1" step="0.05" value="0.8" /></label>
+      </div>
+      <h4>Failures (active now)</h4>
+      <div id="failures" class="grid"></div>
+      <label class="rf"><input id="rand-fail" type="checkbox" /> Random failure sometime during the flight</label>
+    </section>
+    <section id="tab-controls" class="tabpage hidden">
+      <div class="keys">
+        <div><h4>Flight controls</h4>
+          <p><kbd>W</kbd><kbd>S</kbd> / <kbd>↑</kbd><kbd>↓</kbd> pitch (S/↓ = pull)</p>
+          <p><kbd>A</kbd><kbd>D</kbd> / <kbd>←</kbd><kbd>→</kbd> roll</p>
+          <p><kbd>Q</kbd><kbd>E</kbd> rudder / nose-wheel steering</p>
+          <p><kbd>=</kbd><kbd>-</kbd> or <kbd>PgUp</kbd><kbd>PgDn</kbd> throttle</p>
+          <p><kbd>Shift</kbd>+<kbd>=</kbd><kbd>-</kbd> mixture rich / lean</p>
+          <p><kbd>[</kbd><kbd>]</kbd> or <kbd>Home</kbd><kbd>End</kbd> elevator trim (] = nose up)</p>
+          <p><kbd>F</kbd> flaps down · <kbd>R</kbd> flaps up</p>
+          <p><kbd>B</kbd> brakes (hold) · <kbd>K</kbd> parking brake</p>
+          <p><kbd>Y</kbd> mouse yoke · gamepads &amp; joysticks auto-detected</p>
+        </div>
+        <div><h4>Systems</h4>
+          <p><kbd>X</kbd> (hold) starter · <kbd>H</kbd> carb heat · <kbd>J</kbd> pitot heat</p>
+          <p><kbd>L</kbd> landing light · <kbd>G</kbd> sync heading indicator</p>
+          <p><kbd>Shift</kbd>+<kbd>B</kbd> set altimeter to ATIS QNH</p>
+          <p><kbd>Z</kbd> autopilot on/off (modes on panel)</p>
+          <p><kbd>N</kbd> swap NAV1 · <kbd>,</kbd><kbd>.</kbd> NAV1 OBS · <kbd>Shift</kbd>+<kbd>,</kbd><kbd>.</kbd> heading bug</p>
+          <p>Mouse wheel / click on any knob, radio, switch or lever in the panel</p>
+        </div>
+        <div><h4>Airbus A320</h4>
+          <p>Sidestick: same keys / mouse (Y) / joystick — FBW holds attitude when released</p>
+          <p><kbd>=</kbd><kbd>-</kbd> thrust levers (stop at detents) · <kbd>Shift</kbd>+<kbd>=</kbd><kbd>-</kbd> jump detent IDLE/CL/FLX-MCT/TOGA · below IDLE on ground = reverse</p>
+          <p><kbd>F</kbd>/<kbd>R</kbd> flaps lever · <kbd>G</kbd> gear · <kbd>/</kbd> speed brake · <kbd>Shift</kbd>+<kbd>/</kbd> arm spoilers</p>
+          <p><kbd>Z</kbd> AP1 · <kbd>Shift</kbd>+<kbd>Z</kbd> A/THR · <kbd>X</kbd> AP disconnect · <kbd>Shift</kbd>+<kbd>X</kbd> A/THR disconnect</p>
+          <p><kbd>Shift</kbd>+<kbd>A</kbd> APPR · <kbd>Shift</kbd>+<kbd>V</kbd> LOC · <kbd>F4</kbd> LS · <kbd>Shift</kbd>+<kbd>T</kbd> gravity gear extension</p>
+          <p><kbd>F2</kbd> MCDU (click it, then type on the keyboard) · <kbd>F3</kbd> overhead panel &amp; ground services</p>
+          <p><kbd>[</kbd><kbd>]</kbd> manual pitch trim (direct law / ground)</p>
+        </div>
+        <div><h4>Touch screen (phone / tablet)</h4>
+          <p>Left stick: pitch &amp; roll (pull down = nose up) · <b>◀ RUD / RUD ▶</b> rudder &amp; nosewheel</p>
+          <p>Right lever: thrust (A320 detents TOGA · FLX · CL · IDLE · REV) · <b>BRK</b> hold to brake</p>
+          <p><b>PANEL</b> instruments (phone A320: displays → pedestal → off) · <b>VIEW</b> next view · <b>⋯</b> more controls</p>
+          <p>Drag the view to look around, pinch to zoom, double-tap to recenter · drag a knob up/down to turn it, or tap its left/right half</p>
+          <p>iPhone: Share → <i>Add to Home Screen</i> for full screen</p>
+        </div>
+        <div><h4>Views &amp; sim</h4>
+          <p><kbd>C</kbd> cycle views · <kbd>1</kbd>–<kbd>0</kbd>: cockpit+panel, cockpit, chase, tower, fly-by, wing, side, orbit, cabin window, belly cam</p>
+          <p><kbd>Tab</kbd> hide/show panel · drag mouse to look · wheel to zoom · <kbd>Space</kbd> recenter</p>
+          <p><kbd>M</kbd> moving map · <kbd>I</kbd> flight data · <kbd>U</kbd> sound</p>
+          <p><kbd>P</kbd> pause · <kbd>Esc</kbd> menu · <kbd>Shift</kbd>+<kbd>R</kbd> restart scenario</p>
+        </div>
+      </div>
+      <p class="note">Flying tips: trim takes the pressure off — trim for the speed you want, then use power for climb/descent. Watch the ball on the turn coordinator and "step on the ball". The magnetic compass lags in turns toward north and leads toward south; sync the heading indicator to it in straight &amp; level flight.</p>
+    </section>
+    <section id="tab-charts" class="tabpage hidden">
+      <div class="charts">
+        <div><h4>OIII Tehran Mehrabad · 3,965 ft (AIP)</h4>
+          <p>RWY 11L/29R 3,996 × 45 m concrete · 29R PALS CAT I 830 m, PAPI 3.3°<br />RWY 11R/29L 4,041 × 60 m asphalt · 29L PALS 870 m, PAPI 3.3° · 11R SALS 300 m, PAPI 3.4°<br />Runway slope 1.26 % (29 thresholds ~165 ft lower)</p>
+          <p><b>ILS 29L</b> ITHL 109.90 · CRS 285° · GP 3.3° · RDH 59 ft · DME<br /><b>ILS 29R</b> ITRN 110.70 · CRS 285° · DME</p>
+          <p><b>TRN DVOR/DME</b> 115.30 · <b>RUS VOR/DME</b> 116.95 · <b>VR NDB</b> 373 · <b>KAZ NDB</b> 358</p>
+          <p>ATIS 128.000 · DEL 121.850 · GND 121.700 / 121.900 · TWR 118.100 / 124.450 · APP 119.700 / 125.100<br />TA 9,000 ft · TL FL110 · MAG VAR 5°E</p>
+        </div>
+        <div><h4>OIIE Imam Khomeini · 3,305 ft (approx.)</h4>
+          <p>RWY 11L/29R 4,201 m · RWY 11R/29L 4,095 m<br />ILS 29R IIKA 110.30 · ILS 11L IIKE 108.50 (sim frequencies)</p>
+          <h4>A320 speeds (64 t)</h4>
+          <p>VR ≈ 140 · V2 ≈ 145 · VLS FULL ≈ 128 · VAPP ≈ 133 · Green dot ≈ 213<br />VFE: 1 230 · 1+F 215 · 2 200 · 3 185 · FULL 177 · VLE 280 · VMO 350 / MMO .82</p>
+        </div>
+        <div><h4>KAVX Avalon Regional · 197 ft</h4>
+          <p>RWY 09/27 · 2000 × 45 m asphalt · ALS + PAPI rwy 27</p>
+          <p><b>ILS 27</b> IAVX 110.30 · CRS 270° · GS 3.0° · DME<br />OM/LOM "AV" 356 kHz at 4.5 nm · MM 0.6 nm<br />DA 200 ft AGL · Missed: climb rwy heading to 3000, direct AVX</p>
+          <p><b>ILS 09</b> IAVE 109.50 · CRS 090° · GS 3.0°</p>
+          <p><b>AVX VOR/DME</b> 113.90 (on field)</p>
+        </div>
+        <div><h4>KHLD Highland Field · ~1000 ft</h4>
+          <p>RWY 18/36 · 1500 × 30 m · ALS + PAPI rwy 36</p>
+          <p><b>ILS 36</b> IHLD 108.70 · CRS 360° · GS 3.0° · DME<br />LOM "HL" 329 kHz · High terrain north of field!</p>
+          <p><b>HLD VOR/DME</b> 116.40 · from AVX: 030° / 13 nm</p>
+        </div>
+        <div><h4>KLKV Lakeview · ~160 ft</h4>
+          <p>RWY 13/31 · 1300 × 30 m</p>
+          <p><b>LK NDB</b> 382 kHz · <b>LKV VOR/DME</b> 115.20</p>
+        </div>
+        <div><h4>C172S V-speeds (KIAS)</h4>
+          <p>Vr 55 · Vx 62 · Vy 74 · Best glide 68<br />Vs0 40 · Vs1 48 · Vfe 85 (110 with 10°)<br />Va 105 · Vno 129 · Vne 163<br />Final approach 65 flaps 30 · Cruise 2400 rpm ≈ 110 KTAS</p>
+        </div>
+      </div>
+    </section>
+    <footer>
+      <button id="btn-resume">Resume</button>
+      <button id="btn-fly" class="primary">Fly selected scenario ▶</button>
+    </footer>
+  </div>
+</div>
