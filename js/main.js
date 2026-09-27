@@ -14,7 +14,7 @@
     showMap: false, mapScale: 0.008, autoRudder: true, track: [], lastTouch: 0, airborneTime: 0, pendingFailure: null, randomFailures: false,
     crashShown: false, acType: 'a320', world: null, detHold: 0, push: null, jetway: false, calls: {}, lastRa: 9999,
   };
-  let terrain, navaids, weather, renderer, camera, scenery, env, rig, input, audio;
+  let terrain, navaids, weather, renderer, camera, scenery, env, rig, input, audio, touch;
   let c172, model172, ind, ap, nav1, nav2, adf, marker, panel; // Cessna
   let a320, sys, fm, mcdu, cockpit, model320, tcas; // Airbus
   const rx = {}; // A320 receivers
@@ -442,6 +442,7 @@
     model172.shadow.visible = false;
     model320.root.visible = t === 'a320';
     model320.shadow.visible = false;
+    touch.setButtons(touchButtons());
   }
 
   async function loadScenario(id) {
@@ -504,7 +505,7 @@
   // ================================================================ init
   async function init() {
     renderer = new THREE.WebGLRenderer({ canvas: $('view'), antialias: true, logarithmicDepthBuffer: true, powerPreference: 'high-performance' });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, FS.DEVICE.mobile ? 1.5 : 2)); // phones/tablets: keep the frame rate up
     renderer.outputEncoding = THREE.sRGBEncoding;
     camera = new THREE.PerspectiveCamera(60, 1, 0.3, 200000);
     weather = new FS.Weather('fair');
@@ -561,9 +562,16 @@
     });
     input.onKey = onKey;
     input.onMessage = (m) => banner(m, 3);
+    touch = new FS.TouchControls($('touch'), { input, lever: touchLever() });
+    setupTouchPref();
+    if (FS.DEVICE.phone) S.showPanel = false; // phones start with the outside view; PANEL shows the instruments
     buildMenu();
     setupMouse();
     window.addEventListener('resize', layout);
+    window.addEventListener('orientationchange', () => setTimeout(layout, 300));
+    // iOS: no page pinch-zoom; resume audio after the app was in the background (needs a touch)
+    document.addEventListener('gesturestart', (e) => e.preventDefault());
+    document.addEventListener('pointerdown', () => audio.ctx && audio.ctx.state !== 'running' && audio.ctx.resume(), true);
     const sc = SCENARIOS.find((s) => s.id === S.scenario);
     applyScenarioWeather(sc);
     await loadScenario(S.scenario);
@@ -574,22 +582,46 @@
   }
 
   // ================================================================ layout
-  function panelHeight() {
-    const H = window.innerHeight;
-    if (S.acType === 'a320') return Math.round(FS.clamp(H * 0.58, 330, 680));
-    return Math.round(FS.clamp(H * 0.4, 220, 470));
+  // phones (short screens): compact A320 panel (displays or pedestal), stick & thrust lever beside the panel
+  const isCompact = () => window.innerHeight < 560;
+  function touchSide() {
+    if (!touch.enabled || !touch.showSticks || !isCompact() || (S.acType === 'a320' && cockpit.pedPage)) return 0;
+    return Math.round(FS.clamp(window.innerWidth * 0.15, 100, 140));
+  }
+  function panelHeight(side) {
+    const W = window.innerWidth,
+      H = window.innerHeight;
+    if (S.acType === 'a320') {
+      if (!isCompact()) return Math.round(FS.clamp(H * 0.58, 330, 680));
+      const glH = Math.min(46, (W / 1040) * 46); // as in A320Cockpit.draw
+      if (cockpit.pedPage) return Math.round(glH + 4 + Math.min(H * 0.62 - glH - 4, (W / 800) * 130));
+      return Math.round(glH + 8 + Math.min(H * 0.62 - glH - 8, (W - 2 * side - 20) / 4.12));
+    }
+    return Math.round(isCompact() ? H * 0.5 : FS.clamp(H * 0.4, 220, 470));
   }
   function layout() {
     const W = window.innerWidth,
       H = window.innerHeight;
     renderer.setSize(W, H);
+    if (!isCompact()) cockpit.pedPage = false;
     const showPanel = rig.view === 'cockpit' && S.showPanel;
-    const ph = showPanel ? panelHeight() : 0;
+    const side = showPanel ? touchSide() : 0;
+    const ph = showPanel ? panelHeight(side) : 0;
     $('panel').style.display = showPanel && S.acType === 'c172' ? 'block' : 'none';
     $('panel320').style.display = showPanel && S.acType === 'a320' ? 'block' : 'none';
     const dpr = Math.min(window.devicePixelRatio, 2);
-    if (showPanel && S.acType === 'c172') panel.resize(W, ph, dpr);
-    if (showPanel && S.acType === 'a320') cockpit.resize(W, ph, dpr);
+    if (showPanel && S.acType === 'c172') {
+      panel.resize(W - 2 * side, ph, dpr);
+      $('panel').style.left = side + 'px';
+    }
+    if (showPanel && S.acType === 'a320') {
+      cockpit.compact = isCompact();
+      cockpit.side = side;
+      cockpit.resize(W, ph, dpr);
+    }
+    document.body.classList.toggle('compact', isCompact());
+    document.body.classList.toggle('panel-on', showPanel);
+    touch.layout({ W, H, ph, side, hideSticks: showPanel && S.acType === 'a320' && cockpit.pedPage });
     const hfov = (S.acType === 'a320' ? 84 : 78) * DEG;
     if (showPanel) {
       const c = (H - ph) * (S.acType === 'a320' ? 0.5 : 0.52);
@@ -608,12 +640,13 @@
     S.viewH = H - ph;
     const m = $('map');
     m.width = W * 0.8;
-    m.height = Math.max(200, (H - ph) * 0.9);
+    m.height = Math.max(160, (H - ph) * 0.9 - (touch.enabled ? 60 : 0));
     const mc = $('mcdu');
     mc.width = 440;
     mc.height = 660;
     const ov = $('ovhd');
-    ov.width = Math.min(W - 40, 1000);
+    const top = touch.enabled ? 56 : 20; // below the touch toolbar
+    ov.width = Math.round(Math.min(W - 20, 1000, (H - top - 10) / 0.58));
     ov.height = Math.round(ov.width * 0.58);
   }
   function toggleMcdu() {
@@ -655,7 +688,7 @@
         banner(FS.VIEW_NAMES[rig.view], 1.2);
         return;
       }
-      case 'Tab': S.showPanel = !S.showPanel; if (rig.view === 'cockpit-wide') rig.set('cockpit'); layout(); return;
+      case 'Tab': togglePanel(); return;
       case 'KeyM': S.showMap = !S.showMap; $('map').classList.toggle('hidden', !S.showMap); return;
       case 'KeyI': S.showInfo = !S.showInfo; $('hud-info').classList.toggle('hidden', !S.showInfo); return;
       case 'KeyY': input.mouseYoke = !input.mouseYoke; banner('Mouse ' + (S.acType === 'a320' ? 'sidestick' : 'yoke') + (input.mouseYoke ? ' ON' : ' OFF'), 2); return;
@@ -722,6 +755,125 @@
       case 'KeyT': k.gravityExt = sh ? true : k.gravityExt; if (sh) banner('Gravity gear extension', 1.5); break;
     }
   }
+  function togglePanel() {
+    if (!rig.isCockpit) {
+      // from an outside view: go to the cockpit with the panel
+      rig.set('cockpit');
+      S.showPanel = true;
+    } else if (S.acType === 'a320' && isCompact() && S.showPanel && rig.view === 'cockpit' && !cockpit.pedPage) {
+      // phones: displays → pedestal → off
+      cockpit.pedPage = true;
+      banner('Panel: pedestal (sidestick, thrust, flaps, engines)', 1.5);
+    } else {
+      S.showPanel = !S.showPanel;
+      cockpit.pedPage = false;
+      if (rig.view === 'cockpit-wide') rig.set('cockpit');
+    }
+    layout();
+  }
+
+  // ---------------- touch controls
+  function touchLever() {
+    return {
+      get: () => (S.acType === 'a320' ? (Math.max(...a320.ctl.tla) + 20) / 65 : c172.ctl.throttle),
+      set: (f) => {
+        if (S.acType !== 'a320') return (c172.ctl.throttle = f);
+        let v = f * 65 - 20;
+        const d = [0, 25, 35, 45].find((x) => Math.abs(v - x) < 2.5); // detents catch the lever
+        if (d != null) v = d;
+        if (v < 0 && !a320.onGround) v = 0;
+        a320.ctl.tla = [v, v];
+      },
+      marks: () => (S.acType === 'a320' ? [[45, 'TOGA'], [35, 'FLX'], [25, 'CL'], [0, 'IDLE'], [-20, 'REV']].map(([v, l]) => [(v + 20) / 65, l]) : [[1, 'FULL'], [0, 'IDLE']]),
+    };
+  }
+  function touchButtons() {
+    const bar = [
+      { label: '☰', key: 'Escape', title: 'Menu' },
+      { label: '❚❚', key: 'KeyP', title: 'Pause', on: () => S.paused },
+      { label: 'VIEW', key: 'KeyC', title: 'Next view (outside / cockpit)' },
+      { label: 'PANEL', key: 'Tab', title: 'Instrument panel', on: () => S.showPanel && rig.view === 'cockpit' },
+      { label: 'MAP', key: 'KeyM', title: 'Moving map', on: () => S.showMap },
+    ];
+    const common = [
+      { label: 'PARK BRK', key: 'KeyK', on: () => ac.ctl.parkingBrake },
+      { label: 'LAND LT', key: 'KeyL', on: () => ac.lights.landing },
+      { label: 'TRIM ▲', key: 'BracketRight', hold: true, title: 'Pitch trim nose up' },
+      { label: 'TRIM ▼', key: 'BracketLeft', hold: true, title: 'Pitch trim nose down' },
+      { label: 'INFO', key: 'KeyI', on: () => S.showInfo },
+      { label: 'SOUND', key: 'KeyU', on: () => audio.enabled },
+      { label: 'STICKS', fn: () => ((touch.showSticks = !touch.showSticks), layout()), on: () => touch.showSticks, title: 'Show / hide the on-screen stick and thrust lever' },
+      { label: 'RESTART', key: 'KeyR', shift: true },
+    ];
+    if (S.acType === 'a320') {
+      bar.push({ label: 'MCDU', key: 'F2', on: () => !$('mcdu').classList.contains('hidden') }, { label: 'OVHD', key: 'F3', on: () => !$('ovhd').classList.contains('hidden') });
+      return {
+        bar,
+        quick: [
+          { label: 'BRK', key: 'KeyB', hold: true, title: 'Brakes (hold)' },
+          { label: 'FLAP −', key: 'KeyR' },
+          { label: 'FLAP +', key: 'KeyF' },
+          { label: 'GEAR', key: 'KeyG', on: () => a320.ctl.gearLever === 'DOWN' },
+          { label: 'AP1', key: 'KeyZ', on: () => fm.fcu.ap1 },
+          { label: 'A/THR', key: 'KeyZ', shift: true, on: () => fm.fcu.athr },
+        ],
+        more: [
+          { label: 'AP OFF', key: 'KeyX' },
+          { label: 'ATHR OFF', key: 'KeyX', shift: true },
+          { label: 'APPR', key: 'KeyA', shift: true, on: () => fm.fcu.appr },
+          { label: 'LOC', key: 'KeyV', shift: true, on: () => fm.fcu.loc },
+          { label: 'LS', key: 'F4', on: () => fm.fcu.ls[0] },
+          { label: 'SPD BRK', key: 'Slash', on: () => a320.ctl.speedBrake > 0 },
+          { label: 'ARM SPLR', key: 'Slash', shift: true, on: () => a320.ctl.spoilersArmed },
+          { label: 'GRAV GEAR', key: 'KeyT', shift: true },
+          ...common,
+        ],
+      };
+    }
+    return {
+      bar,
+      quick: [
+        { label: 'BRK', key: 'KeyB', hold: true, title: 'Brakes (hold)' },
+        { label: 'FLAP −', key: 'KeyR' },
+        { label: 'FLAP +', key: 'KeyF' },
+        { label: 'AP', key: 'KeyZ', on: () => ap.on },
+        { label: 'TRIM ▲', key: 'BracketRight', hold: true },
+        { label: 'TRIM ▼', key: 'BracketLeft', hold: true },
+      ],
+      more: [
+        { label: 'STARTER', key: 'KeyX', hold: true, title: 'Hold to crank' },
+        { label: 'MIX +', key: 'Equal', shift: true, hold: true },
+        { label: 'MIX −', key: 'Minus', shift: true, hold: true },
+        { label: 'CARB HT', key: 'KeyH', on: () => c172.ctl.carbHeat },
+        { label: 'PITOT HT', key: 'KeyJ', on: () => c172.pitotHeat },
+        { label: 'SYNC DG', key: 'KeyG' },
+        { label: 'NAV SWAP', key: 'KeyN' },
+        { label: 'SET ALTM', key: 'KeyB', shift: true, title: 'Altimeter to ATIS QNH' },
+        { label: 'OBS −', key: 'Comma', repeat: true },
+        { label: 'OBS +', key: 'Period', repeat: true },
+        { label: 'HDG −', key: 'Comma', shift: true, repeat: true },
+        { label: 'HDG +', key: 'Period', shift: true, repeat: true },
+        ...common.filter((b) => !b.label.startsWith('TRIM')),
+      ],
+    };
+  }
+  function setupTouchPref() {
+    const box = $('touch-ui');
+    let pref = null;
+    try {
+      pref = localStorage.getItem('fs.touchUI');
+    } catch (_) {}
+    box.checked = pref != null ? pref === '1' : FS.DEVICE.mobile;
+    touch.setEnabled(box.checked);
+    box.onchange = () => {
+      touch.setEnabled(box.checked);
+      try {
+        localStorage.setItem('fs.touchUI', box.checked ? '1' : '0');
+      } catch (_) {}
+      layout();
+    };
+  }
+
   const DETENTS = [-20, 0, 25, 35, 45];
   function jumpDetent(d) {
     const k = a320.ctl;
@@ -751,19 +903,54 @@
     }
   }
 
+  // mouse & touch on the 3D view: drag to look, wheel / pinch to zoom, double-click / double-tap to recenter
   function setupMouse() {
     const v = $('view');
-    let drag = null;
-    v.addEventListener('mousedown', (e) => {
-      drag = { x: e.clientX, y: e.clientY };
+    const pinchable = (el, onDrag, onPinch) => {
+      const pts = new Map();
+      let spread = 0;
+      const dist = () => {
+        const [a, b] = [...pts.values()];
+        return Math.hypot(a.x - b.x, a.y - b.y);
+      };
+      el.style.touchAction = 'none';
+      el.addEventListener('pointerdown', (e) => {
+        pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        try {
+          el.setPointerCapture(e.pointerId);
+        } catch (_) {}
+        spread = pts.size === 2 ? dist() : 0;
+      });
+      el.addEventListener('pointermove', (e) => {
+        const p = pts.get(e.pointerId);
+        if (!p) return;
+        if (pts.size === 1 && onDrag) onDrag(e.clientX - p.x, e.clientY - p.y);
+        p.x = e.clientX;
+        p.y = e.clientY;
+        if (pts.size === 2 && spread) {
+          const d = dist();
+          if (Math.abs(d / spread - 1) > 0.08) {
+            onPinch(d / spread);
+            spread = d;
+          }
+        }
+      });
+      const up = (e) => {
+        pts.delete(e.pointerId);
+        spread = pts.size === 2 ? dist() : 0;
+      };
+      el.addEventListener('pointerup', up);
+      el.addEventListener('pointercancel', up);
+    };
+    let lastTap = 0;
+    v.addEventListener('pointerdown', (e) => {
       if (mcdu) mcdu.focus = false;
+      if (e.pointerType === 'mouse' || !e.isPrimary) return;
+      const now = performance.now();
+      if (now - lastTap < 300) rig.set(rig.view);
+      lastTap = now;
     });
-    window.addEventListener('mouseup', () => (drag = null));
-    window.addEventListener('mousemove', (e) => {
-      if (!drag || input.mouseYoke) return;
-      rig.drag(e.clientX - drag.x, e.clientY - drag.y);
-      drag = { x: e.clientX, y: e.clientY };
-    });
+    pinchable(v, (dx, dy) => !input.mouseYoke && rig.drag(dx, dy), (k) => rig.wheel(k > 1 ? -1 : 1));
     v.addEventListener('wheel', (e) => {
       e.preventDefault();
       rig.wheel(e.deltaY);
@@ -773,6 +960,7 @@
       e.preventDefault();
       S.mapScale = FS.clamp(S.mapScale * (e.deltaY < 0 ? 1.25 : 0.8), 0.001, 0.3);
     }, { passive: false });
+    pinchable($('map'), null, (k) => (S.mapScale = FS.clamp(S.mapScale * k, 0.001, 0.3)));
   }
 
   // ---------------- control application
@@ -881,6 +1069,7 @@
     if (hudTimer <= 0) {
       hudTimer = 0.1;
       updateHUD();
+      touch.update(S.started && !S.menuOpen && !S.building, { mcdu: !$('mcdu').classList.contains('hidden'), ovhd: !$('ovhd').classList.contains('hidden') });
     }
     if (S.showMap) drawMap();
     const camDist = camera.position.distanceTo(new THREE.Vector3(ac.pos.y, -ac.pos.z, -ac.pos.x));
@@ -1204,7 +1393,7 @@
       if (ap.on) lines.push(`<b>AP</b> ${ap.annunciation()}`);
       if (!c172.eng.running && !c172.crashed) lines.push('<span class="warn">ENGINE STOPPED</span>');
     }
-    if (input.mouseYoke) lines.push('<i>mouse control active (Y)</i>');
+    if (input.mouseYoke && !touch.enabled) lines.push('<i>mouse control active (Y)</i>');
     $('hud-info').innerHTML = lines.join('<br>');
   }
 
@@ -1338,7 +1527,8 @@
     g.fillStyle = '#fff';
     g.fillRect(16, H - 24, nmStep * nmPx, 3);
     g.fillText(`${nmStep} nm`, 16, H - 32);
-    g.fillText('MAP (M to close, wheel to zoom)  N ↑', W - 250, 20);
+    g.textAlign = 'right';
+    g.fillText(touch.enabled ? 'MAP (pinch to zoom)  N ↑' : 'MAP (M to close, wheel to zoom)  N ↑', W - 12, 20);
   }
 
 
@@ -1424,6 +1614,8 @@
       S.started = true;
       S.paused = false;
       showMenu(false);
+      // Android phones: full screen + landscape (iPhone Safari has no full-screen API: use "Add to Home Screen")
+      if (FS.DEVICE.phone && !FS.DEVICE.ios && !(document.fullscreenElement || document.webkitFullscreenElement)) FS.TouchControls.toggleFullscreen();
     };
     $('btn-resume').onclick = () => {
       audio.start();
@@ -1498,6 +1690,9 @@
   function showMenu(open) {
     S.menuOpen = open;
     $('menu').classList.toggle('hidden', !open);
+    document.body.classList.toggle('flying', !open);
+    touch.toggleMore(false);
+    touch.update(S.started && !open);
     if (open) refreshMenu();
   }
 

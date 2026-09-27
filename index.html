@@ -2,7 +2,13 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Avalon Sim" />
+    <link rel="manifest" href="manifest.webmanifest" />
     <title>Avalon Flight Simulator — A320 Mehrabad</title>
     <link rel="stylesheet" href="css/style.css" />
   </head>
@@ -19,6 +25,12 @@
     <canvas id="ovhd" class="hidden popup"></canvas>
     <div id="report" class="hidden"></div>
     <div id="crash" class="hidden"></div>
+    <div id="touch" class="hidden"></div>
+    <div id="rotate">
+      <div class="rotate-icon">⟳</div>
+      <p>Turn your phone sideways — the simulator is made for landscape.</p>
+      <button onclick="document.body.classList.add('rotate-ok')">Continue in portrait</button>
+    </div>
 
     <div id="loading">
       <div class="logo">AVALON<span>FLIGHT SIMULATOR</span></div>
@@ -79,6 +91,7 @@
             <label><input id="baro-auto" type="checkbox" checked /> Altimeter preset to ATIS QNH (otherwise 29.92)</label>
             <label><input id="auto-rudder" type="checkbox" checked /> Auto-coordination (rudder assist in flight)</label>
             <label><input id="mouse-yoke" type="checkbox" /> Mouse yoke</label>
+            <label><input id="touch-ui" type="checkbox" /> On-screen touch controls (automatic on phones &amp; tablets)</label>
             <label>Control sensitivity <input id="sens" type="range" min="0.4" max="1.5" step="0.05" value="1" /></label>
             <label>Sound volume <input id="volume" type="range" min="0" max="1" step="0.05" value="0.8" /></label>
           </div>
@@ -115,6 +128,13 @@
               <p><kbd>Shift</kbd>+<kbd>A</kbd> APPR · <kbd>Shift</kbd>+<kbd>V</kbd> LOC · <kbd>F4</kbd> LS · <kbd>Shift</kbd>+<kbd>T</kbd> gravity gear extension</p>
               <p><kbd>F2</kbd> MCDU (click it, then type on the keyboard) · <kbd>F3</kbd> overhead panel &amp; ground services</p>
               <p><kbd>[</kbd><kbd>]</kbd> manual pitch trim (direct law / ground)</p>
+            </div>
+            <div><h4>Touch screen (phone / tablet)</h4>
+              <p>Left stick: pitch &amp; roll (pull down = nose up) · <b>◀ RUD / RUD ▶</b> rudder &amp; nosewheel</p>
+              <p>Right lever: thrust (A320 detents TOGA · FLX · CL · IDLE · REV) · <b>BRK</b> hold to brake</p>
+              <p><b>PANEL</b> instruments (phone A320: displays → pedestal → off) · <b>VIEW</b> next view · <b>⋯</b> more controls</p>
+              <p>Drag the view to look around, pinch to zoom, double-tap to recenter · drag a knob up/down to turn it, or tap its left/right half</p>
+              <p>iPhone: Share → <i>Add to Home Screen</i> for full screen</p>
             </div>
             <div><h4>Views &amp; sim</h4>
               <p><kbd>C</kbd> cycle views · <kbd>1</kbd>–<kbd>0</kbd>: cockpit+panel, cockpit, chase, tower, fly-by, wing, side, orbit, cabin window, belly cam</p>
@@ -178,6 +198,7 @@
     <script src="js/render/panel.js"></script>
     <script src="js/sim/audio.js"></script>
     <script src="js/sim/input.js"></script>
+    <script src="js/sim/touch.js"></script>
     <script src="js/a320/fdm.js"></script>
     <script src="js/a320/systems.js"></script>
     <script src="js/a320/fmgs.js"></script>

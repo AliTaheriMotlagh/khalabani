@@ -1,7 +1,8 @@
 /*
  * 2D instrument panel (canvas). Classic six-pack + NAV1 (VOR/LOC/GS), NAV2, ADF, tachometer, engine cluster,
  * annunciators & marker beacons, KAP 140 autopilot, NAV/COM/ADF/DME/XPDR stack, switches and levers.
- * All knobs respond to mouse wheel and clicks (left half = decrease, right half = increase).
+ * All knobs respond to mouse wheel and clicks (left half = decrease, right half = increase); on touch screens drag a
+ * knob up/right to increase or tap its left/right half.
  */
 (function (root) {
   'use strict';
@@ -24,30 +25,13 @@
       this.egtRef = 1350;
       this.xpdr = [1, 2, 0, 0];
       this.hover = null;
-      canvas.addEventListener('wheel', (e) => {
-        e.preventDefault();
-        const r = this.hit(e);
-        if (r && r.wheel) r.wheel(e.deltaY < 0 ? 1 : -1, e.shiftKey);
-      }, { passive: false });
-      canvas.addEventListener('mousedown', (e) => {
-        const r = this.hit(e);
-        if (r && r.click) {
-          const rel = (e.offsetX - r.x) / r.w;
-          r.click(rel < 0.5 ? -1 : 1, rel, e.button);
-          e.preventDefault();
-        }
-      });
-      canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-      canvas.addEventListener('mousemove', (e) => {
-        const r = this.hit(e);
-        canvas.style.cursor = r ? 'pointer' : 'default';
-        this.hover = r ? r.tip : null;
+      FS.bindRegions(canvas, (x, y) => this.hit(x, y), {
+        click: (r, d, rel, relY, button) => r.click(d, rel, button),
+        hover: (r) => (this.hover = r ? r.tip : null),
       });
     }
 
-    hit(e) {
-      const x = e.offsetX,
-        y = e.offsetY;
+    hit(x, y) {
       for (let i = this.regions.length - 1; i >= 0; i--) {
         const r = this.regions[i];
         if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return r;

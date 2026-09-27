@@ -1,0 +1,9 @@
+{
+  "name": "Avalon Flight Simulator",
+  "short_name": "Avalon Sim",
+  "start_url": "./index.html",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#000000",
+  "theme_color": "#000000"
+}

@@ -11,6 +11,29 @@ There is no build step. Open `index.html` in Chrome, Edge or Firefox; WebGL is r
 
 If the browser blocks local files, run `python3 -m http.server 8000` in this folder and open http://localhost:8000.
 
+## Phones & tablets (iPhone, iPad, Android)
+
+The sim detects a phone or tablet automatically and switches to touch controls. You can turn them on or off under **Time & Systems → On-screen touch controls**.
+
+To open it on a phone, run the server on your computer so the phone can reach it:
+
+```
+python3 -m http.server 8000 --bind 0.0.0.0
+```
+
+Then open `http://<your-computer's-IP>:8000` on the phone, on the same Wi-Fi network. On iPhone, use Share → **Add to Home Screen** to run it full screen. Hold the device in landscape.
+
+| Touch control | What it does |
+|---|---|
+| Left stick | Pitch & roll. Pull down = nose up; it re-centres when released |
+| ◀ RUD / RUD ▶ | Rudder and nosewheel steering |
+| Right lever | Thrust. The A320 lever has TOGA / FLX / CL / IDLE / REV detents |
+| BRK, FLAP −/+, GEAR, AP… | Quick actions. **⋯** opens the rest (spoilers, APPR/LOC, trim, lights, starter, mixture, OBS…) |
+| PANEL | Instrument panel. On phones the A320 panel cycles displays → pedestal → off |
+| VIEW / MAP / MCDU / OVHD | Views, moving map, MCDU and overhead panel |
+| 3D view | Drag to look around, pinch to zoom, double-tap to recentre |
+| Panel knobs | Drag up/right to increase, or tap the left/right half to step |
+
 ## Tehran / Mehrabad (OIII)
 
 Airport data comes from the Iranian AIP (AD 2 OIII, AIRAC AMDT 1/20 & 3/21):

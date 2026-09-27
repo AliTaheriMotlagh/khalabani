@@ -18,46 +18,9 @@
     constructor(canvas) {
       this.list = [];
       this.cv = canvas;
-      canvas.addEventListener('wheel', (e) => {
-        const r = this.hit(e);
-        if (r && r.wheel) {
-          e.preventDefault();
-          r.wheel(e.deltaY < 0 ? 1 : -1, e.shiftKey);
-        }
-      }, { passive: false });
-      canvas.addEventListener('mousedown', (e) => {
-        const r = this.hit(e);
-        if (r) {
-          e.preventDefault();
-          if (r.drag) this.dragging = { r, y0: e.clientY, x0: e.clientX };
-          if (r.click) {
-            const rel = (e.offsetX - r.x) / r.w,
-              relY = (e.offsetY - r.y) / r.h;
-            r.click(rel < 0.5 ? -1 : 1, rel, relY, e.button);
-          }
-        }
-      });
-      window.addEventListener('mousemove', (e) => {
-        if (this.dragging) {
-          this.dragging.r.drag(e.clientX - this.dragging.x0, e.clientY - this.dragging.y0);
-          this.dragging.x0 = e.clientX;
-          this.dragging.y0 = e.clientY;
-        }
-        if (e.target === canvas) {
-          const r = this.hit(e);
-          canvas.style.cursor = r ? 'pointer' : 'default';
-          this.tip = r ? r.tip : null;
-        }
-      });
-      window.addEventListener('mouseup', () => {
-        if (this.dragging && this.dragging.r.release) this.dragging.r.release();
-        this.dragging = null;
-      });
-      canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+      FS.bindRegions(canvas, (x, y) => this.hit(x, y), { hover: (r) => (this.tip = r ? r.tip : null) });
     }
-    hit(e) {
-      const x = e.offsetX,
-        y = e.offsetY;
+    hit(x, y) {
       for (let i = this.list.length - 1; i >= 0; i--) {
         const r = this.list[i];
         if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return r;
@@ -124,6 +87,9 @@
       this.env = env; // { getAc, fm, sys, audio, onPushback ... }
       this.rmp = { active: 118.1, standby: 121.9 };
       this.chrono = null;
+      this.compact = false; // phones: displays OR pedestal
+      this.pedPage = false;
+      this.side = 0;
     }
     resize(w, h, dpr) {
       this.W = w;
@@ -148,23 +114,30 @@
       const ac = st.ac,
         fm = st.fm,
         sys = st.sys;
-      // layout
-      const glH = Math.max(46, H * 0.12);
-      const pedH = Math.max(120, H * 0.3);
-      const duH = H - glH - pedH - 8;
-      const du = Math.min(duH, (W - 20) / 4.12);
-      const gap = (W - du * 4) / 5;
-      this.drawGlareshield(g, 0, 0, W, glH, st);
+      // layout — glareshield (~1040 u wide) and pedestal (~800 u wide) shrink to fit narrow screens. In compact mode
+      // (phones) there is no room for both displays and pedestal, so one of them is shown (this.pedPage).
+      const glH = Math.min(Math.max(46, H * 0.12), (W / 1040) * 46);
+      const pedMax = (W / 800) * 130;
       const y = glH + 4;
-      const xs = [0, 1, 2, 3].map((i) => gap + i * (du + gap));
-      DU().drawPFD(g, xs[0], y, du, st);
-      DU().drawND(g, xs[1], y, du, st);
-      DU().drawEWD(g, xs[2], y, du, st);
-      DU().drawSD(g, xs[3], y, du, st);
-      // ND range/mode quick controls via wheel on ND
-      this.R.add(xs[1], y, du, du, { wheel: (d) => this.ndRange(d), tip: 'ND range (wheel)' });
-      this.R.add(xs[3], y, du, du, { click: () => sys.clr(), tip: 'SD (click = CLR)' });
-      this.drawPedestal(g, 0, y + duH + 4, W, pedH, st);
+      this.drawGlareshield(g, 0, 0, W, glH, st);
+      if (this.compact && this.pedPage) {
+        this.drawPedestal(g, 0, y, W, Math.min(H - y, pedMax), st);
+      } else {
+        const pedH = this.compact ? 0 : Math.min(Math.max(120, H * 0.3), pedMax);
+        const duH = H - glH - pedH - (pedH ? 8 : 4);
+        const side = this.side || 0; // room kept free left & right of the displays for the touch stick / thrust lever
+        const du = Math.min(duH, (W - 2 * side - 20) / 4.12);
+        const gap = (W - 2 * side - du * 4) / 5;
+        const xs = [0, 1, 2, 3].map((i) => side + gap + i * (du + gap));
+        DU().drawPFD(g, xs[0], y, du, st);
+        DU().drawND(g, xs[1], y, du, st);
+        DU().drawEWD(g, xs[2], y, du, st);
+        DU().drawSD(g, xs[3], y, du, st);
+        // ND range/mode quick controls via wheel on ND
+        this.R.add(xs[1], y, du, du, { wheel: (d) => this.ndRange(d), tip: 'ND range (wheel)' });
+        this.R.add(xs[3], y, du, du, { click: () => sys.clr(), tip: 'SD (click = CLR)' });
+        if (pedH) this.drawPedestal(g, 0, y + duH + 4, W, pedH, st);
+      }
       if (this.R.tip) t(g, this.R.tip, W - 8, H - 8, 11, '#aab', 'right');
     }
     ndRange(d) {

@@ -27,7 +27,8 @@
       this.lines = [];
       this.focus = false;
       this.ctx = {};
-      canvas.addEventListener('mousedown', (e) => {
+      canvas.style.touchAction = 'none';
+      canvas.addEventListener('pointerdown', (e) => {
         this.focus = true;
         const r = canvas.getBoundingClientRect();
         const x = ((e.clientX - r.left) / r.width) * this.W,
